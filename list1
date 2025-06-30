@@ -1,0 +1,290 @@
+Option Explicit
+Private ws As Worksheet
+
+Private Sub Workbook_Open()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    ' Íàñòðîéêà çàùèòû
+    ws.Unprotect Password:="123"
+    ws.Cells.Locked = False
+    ws.Range("B2:E100").Locked = False ' Ðàçðåøàåì ðåäàêòèðîâàòü òîëüêî äàííûå (íå çàãîëîâêè)
+    ws.Protect Password:="123", UserInterfaceOnly:=True, _
+       AllowFormattingCells:=True, _
+        AllowFormattingColumns:=True, _
+        AllowInsertingRows:=True
+End Sub
+
+Private Sub Workbook_BeforeClose(Cancel As Boolean)
+    If EditMode Then
+        If MsgBox("Âû íàõîäèòåñü â ðåæèìå ðåäàêòèðîâàíèÿ. Ñîõðàíèòü èçìåíåíèÿ?", vbQuestion + vbYesNo) = vbYes Then
+            ToggleEditMode
+        End If
+    End If
+End Sub
+
+Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
+    If Not Intersect(Target, Range("A2:AJ1000")) Is Nothing Then ' Çàìåíèòå íà âàø äèàïàçîí
+        Application.Calculate
+    End If
+End Sub
+
+
+
+' Èíèöèàëèçàöèÿ ñèñòåìû
+Sub InitializeSystem()
+    ' Íàñòðîéêà çàùèòû
+    ws.Unprotect Password:="123"
+    ws.Cells.Locked = True
+    ws.Range("A2:BF1000").Locked = False ' Ðàçáëîêèðóåì îáëàñòü äëÿ ââîäà äàííûõ
+    ws.Protect Password:="123", UserInterfaceOnly:=True
+    
+    ' Çàãîëîâêè òàáëèöû
+    If ws.Range("A1").Value = "" Then
+        ws.Range("A1:BF1").Value = Array("¹ ïîðÿäêà", "Äàòà", "Âðåìÿ", "Îðãàíèçàöèÿ", "Òèï óñëóãè", "Ñòàòóñ", "Òåìà", "Ïðèìå÷àíèå", "ÑÍÓÏÄÑ")
+        ws.Range("A1:BF1").Font.Bold = True
+        ws.Columns("A:BF").AutoFit
+    End If
+End Sub
+
+' Ïîêàç ôîðìû äëÿ íîâîé çàïèñè
+Sub ShowNewEntryForm()
+    frmNewEntry.Show
+End Sub
+
+Public Sub AddNewEntry(entryDate As String, entryTime As String, org As String, serviceType As String, serviceManager As String, serviceStatus As String, serviceTitle As String, preResult As String, fktPcs As String, fktWght As String, fktFlt As String, fktFltDate As String)
+)
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1") ' Óêàæèòå âàø ëèñò
+    
+    Dim NextRow As Long
+    Dim lastDU As String, newDU As String
+    Dim lastNumber As Long
+    
+    ' Íàõîäèì ñëåäóþùóþ ñòðîêó
+    NextRow = ws.Cells(ws.Rows.count, "A").End(xlUp).Row + 1
+    If NextRow < 2 Then NextRow = 2
+    
+    ' Ïîëó÷àåì ïîñëåäíèé íîìåð ÄÓ
+    If NextRow > 2 Then
+        lastDU = ws.Cells(NextRow - 1, 1).Value
+        If Left(lastDU, 3) = "AO-" Then
+            lastNumber = Val(Mid(lastDU, 4))
+        Else
+            ' Åñëè íîìåðà â ñòàðîì ôîðìàòå, íà÷èíàåì ñ 1
+            lastNumber = 0
+        End If
+    Else
+        lastNumber = 0
+    End If
+    
+    ' Ôîðìèðóåì íîâûé íîìåð ÄÓ
+    newDU = "AO-" & Format(lastNumber + 1, "000")
+    
+    ' Ðàçáëîêèðóåì ëèñò
+    ws.Unprotect Password:="123"
+    
+    ' Çàïèñûâàåì äàííûå
+    With ws.Range("A" & NextRow)
+        .NumberFormat = "@" ' Òåêñòîâûé ôîðìàò
+        .Value = newDU
+        .Offset(0, 1).Value = entryDate
+        .Offset(0, 2).Value = entryTime
+        .Offset(0, 3).Value = org
+        .Offset(0, 4).Value = serviceType
+        .Offset(0, 57).Value = serviceStatus
+        .Offset(0, 51).Value = serviceTitle
+        .Offset(0, 55).Value = serviceManager
+        .Offset(0, 52).Value = preResult
+        .Offset(0, 47).Value = fktPcs
+        .Offset(0, 48).Value = fktWght
+        .Offset(0, 49).Value = fktFlt
+        .Offset(0, 50).Value = fktFltDate
+    End With
+    
+    ' Âîçâðàùàåì çàùèòó
+    ws.Protect Password:="123", UserInterfaceOnly:=True
+    
+    MsgBox "Äîáàâëåíà çàïèñü: " & newDU, vbInformation
+End Sub
+
+Sub ConvertToDUFormat()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.count, "A").End(xlUp).Row
+    
+    ws.Unprotect Password:="123"
+    
+    Dim i As Long
+    For i = 2 To lastRow
+        If Left(ws.Cells(i, 1).Value, 3) <> "ÄÓ-" Then
+            ws.Cells(i, 1).NumberFormat = "@"
+            ws.Cells(i, 1).Value = "ÄÓ-" & Format(i - 1, "000")
+        End If
+    Next i
+    
+    ws.Protect Password:="123", UserInterfaceOnly:=True
+    MsgBox "Êîíâåðòàöèÿ çàâåðøåíà!", vbInformation
+End Sub
+
+Sub EditSelectedEntry()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    ' Ïðîâåðÿåì, ÷òî âûáðàíà ñòðîêà ñ äàííûìè
+    If ActiveCell.Row < 2 Or ActiveCell.Column > 5 Then
+        MsgBox "Âûáåðèòå ÿ÷åéêó â îáëàñòè äàííûõ äëÿ ðåäàêòèðîâàíèÿ", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Ðàçáëîêèðóåì òîëüêî íóæíûå ÿ÷åéêè
+    ws.Unprotect Password:="123"
+    With ws.Range("B" & ActiveCell.Row & ":E" & ActiveCell.Row)
+        .Locked = False  ' Ðàçáëîêèðóåì òîëüêî êîëîíêè B-E äëÿ ðåäàêòèðîâàíèÿ
+    End With
+    ws.Protect Password:="123", UserInterfaceOnly:=True
+    
+    ' Âêëþ÷àåì ðåäàêòèðîâàíèå
+    ActiveCell.Select
+    MsgBox "Ðåäàêòèðîâàíèå ðàçðåøåíî. Ïîñëå âíåñåíèÿ èçìåíåíèé íàæìèòå êíîïêó 'Ñîõðàíèòü'", vbInformation
+End Sub
+
+Sub SaveAfterEdit()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    ' Áëîêèðóåì ÿ÷åéêè îáðàòíî
+    ws.Unprotect Password:="123"
+    ws.Cells.Locked = True
+    ws.Protect Password:="123", UserInterfaceOnly:=True
+    
+    MsgBox "Èçìåíåíèÿ ñîõðàíåíû", vbInformation
+End Sub
+
+
+
+Private Sub CommandButton1_Click()
+    ShowNewEntryForm
+End Sub
+
+
+Private Sub CommandButton2_Click()
+    EditSelectedEntry
+End Sub
+
+Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    ' ?????????, ??? ???? ??? ? ??????? A ? ???????? ?????????? ? "??-"
+    If Target.Column = 1 And Left(Target.Value, 3) = "ÄÓ-" Then
+        Cancel = True ' ???????? ??????????? ???????? ???????? ?????
+        ShowEditForm Target.Value ' ???????? ????? ??????????????
+    End If
+End Sub
+
+Sub ShowEditForm(duNumber As String)
+    Dim frm As frmNewEntry
+    Set frm = New frmNewEntry
+    
+    ' ?????????????? ????? ? ?????? ??????????????
+    If Not frm.InitForEdit(duNumber) Then
+        Unload frm
+        Exit Sub
+    End If
+    
+    frm.Show
+End Sub
+
+
+' Âñòàâêà ñòðîêè äëÿ ïîäçàäà÷è
+Public Sub InsertSubtaskRow(parentRow As Long)
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    ws.Unprotect Password:="123"
+    
+    ' Âñòàâêà ñòðîêè
+    ws.Rows(parentRow + 1).Insert Shift:=xlDown
+    
+    ' Êîïèðîâàíèå ôîðìàòèðîâàíèÿ
+    ws.Rows(parentRow).Copy
+    ws.Rows(parentRow + 1).PasteSpecial Paste:=xlPasteFormats
+    Application.CutCopyMode = False
+    
+    ' Çàïîëíåíèå áàçîâûõ äàííûõ
+    With ws.Range("A" & parentRow + 1)
+        .NumberFormat = "@"
+        .Value = "ÄÓ-XXX.Y" ' Âðåìåííîå çíà÷åíèå
+        .Offset(0, 1).Value = Format(Date, "dd.mm.yyyy")
+        .Offset(0, 2).Value = Format(Time, "hh:mm")
+        .Offset(0, 3).Value = ws.Range("D" & parentRow).Value ' Îðãàíèçàöèÿ
+        .Offset(0, 4).Value = ws.Range("E" & parentRow).Value ' Òèï óñëóãè
+        .Offset(0, 57).Value = "Íîâàÿ" ' Ñòàòóñ
+        .Offset(0, 56).Value = ws.Range("A" & parentRow).Value ' Ðîäèòåëüñêàÿ çàÿâêà
+    End With
+    
+    ws.Protect Password:="123", UserInterfaceOnly:=True
+End Sub
+
+' Äîáàâëåíèå ïîäçàäà÷è ÷åðåç êíîïêó
+Sub AddSubtask()
+    If ActiveCell.Row < 2 Then Exit Sub
+    
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    Dim mainTask As String
+    mainTask = ws.Range("A" & ActiveCell.Row).Value
+    
+    ' Ïðîâåðêà, ÷òî ýòî íå ïîäçàäà÷à
+    If InStr(mainTask, ".") > 0 Then
+        MsgBox "Íåëüçÿ ñîçäàòü ïîäçàäà÷ó äëÿ äðóãîé ïîäçàäà÷è", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Âñòàâêà ñòðîêè
+    InsertSubtaskRow ActiveCell.Row
+    
+    ' Îòêðûòèå ôîðìû
+    Dim frm As frmNewEntry
+    Set frm = New frmNewEntry
+    
+    With frm
+        .chkIsSubtask.Value = True
+        .cboParentTask.Value = mainTask
+        .cboParentTask.Enabled = False
+        .cboOrg.Value = ws.Range("D" & ActiveCell.Row).Value
+        .cboOrg.Enabled = False
+        .cboType.Value = ws.Range("E" & ActiveCell.Row).Value
+        .cboType.Enabled = False
+        .Show
+    End With
+End Sub
+
+
+Function CalculateDuration(startDate As Date, startTime As Date, endDate As Date, endTime As Date) As String
+    Dim totalTime As Double
+    Dim days As Integer
+    Dim hours As Double
+    
+    ' Îáúåäèíÿåì äàòó è âðåìÿ
+    Dim fullStart As Date
+    Dim fullEnd As Date
+    
+    fullStart = startDate + TimeValue(startTime)
+    fullEnd = endDate + TimeValue(endTime)
+    
+    ' Âû÷èñëÿåì ðàçíèöó
+    totalTime = fullEnd - fullStart
+    
+    ' Ðàçäåëÿåì íà äíè è ÷àñû
+    days = Int(totalTime)
+    hours = (totalTime - days) * 24
+    
+    ' Ôîðìàòèðóåì ðåçóëüòàò
+    If days >= 1 Then
+        CalculateDuration = days & " äí. " & Round(hours, 1) & " ÷."
+    Else
+        CalculateDuration = Round(totalTime * 24, 1) & " ÷."
+    End If
+End Function
