@@ -1,0 +1,1545 @@
+Private Declare PtrSafe Function ShellExecute Lib "shell32.dll" Alias "ShellExecuteA" _
+    (ByVal hwnd As Long, ByVal lpOperation As String, _
+     ByVal lpFile As String, ByVal lpParameters As String, _
+     ByVal lpDirectory As String, ByVal nShowCmd As Long) As Long
+
+' Îáúÿâëåíèå ñîáûòèÿ ñ íîâûìè ïàðàìåòðàìè
+Public Event DataEntered(ByVal entryDate As String, ByVal entryTime As String, ByVal org As String, ByVal serviceType As String, ByVal serviceTitle As String, ByVal eqp1Type As String, ByVal eqp1DateStart As String, ByVal eqp1TimeStart As String, ByVal eqp1DateEnd As String, ByVal eqp1TimeEnd As String, ByVal eqp2Type As String, ByVal eqp2DateStart As String, ByVal eqp2TimeStart As String, ByVal eqp2DateEnd As String, ByVal eqp2TimeEnd As String, ByVal eqp3Type As String, ByVal eqp3DateStart As String, ByVal eqp3TimeStart As String, ByVal eqp3DateEnd As String, ByVal eqp3TimeEnd As String, ByVal eqp4Type As String, ByVal eqp4DateStart As String, ByVal eqp4TimeStart As String, ByVal eqp4DateEnd As String, ByVal eqp4TimeEnd As String, ByVal requestStatus As String, ByVal requestDescription As String, ByVal preResult As String, fktPcs As String, fktWght As String, fktFlt As String, fktFltDate As String, linkOut As String)
+
+' Êîíñòàíòû äëÿ àíèìàöèè
+Private Const HIGHLIGHT_COLOR As Long = vbYellow
+Private Const NORMAL_COLOR As Long = xlNone
+Private Const BLINK_COUNT As Integer = 3
+Private Const BLINK_DELAY_MS As Long = 300
+
+
+
+
+
+' Êîä äëÿ êíîïêè "Âñòàâèòü ññûëêó"
+Private Sub btnInsertLink_Click()
+    Dim rawLink As String
+    Dim convertedLink As String
+    
+    ' Ïîëó÷àåì òåêñò èç áóôåðà îáìåíà
+    rawLink = GetClipboardText()
+    
+    ' Ïðîâåðÿåì, åñòü ëè äàííûå
+    If rawLink = "" Then
+        MsgBox "Áóôåð îáìåíà ïóñò!", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Êîíâåðòèðóåì ññûëêó
+    convertedLink = ConvertNotesLink(rawLink)
+    
+    ' Ïðîâåðÿåì ðåçóëüòàò
+    If convertedLink = "" Then
+        MsgBox "Íå óäàëîñü ïðåîáðàçîâàòü ññûëêó!", vbCritical
+    Else
+        ' Âûâîäèì ðåçóëüòàò â ïîëå è êîïèðóåì â áóôåð
+        txtLinkOut.Value = convertedLink
+        CopyToClipboard convertedLink
+        MsgBox "Ññûëêà óñïåøíî ïðåîáðàçîâàíà!", vbInformation
+    End If
+End Sub
+
+' Îñíîâíàÿ ôóíêöèÿ êîíâåðòàöèè
+Private Function ConvertNotesLink(rawText As String) As String
+    On Error GoTo ErrorHandler
+    
+    ' 1. Èçâëåêàåì ñåðâåð
+    Dim server As String
+    server = ExtractBetween(rawText, "<HINT>", "</HINT>")
+    server = CleanServer(server)
+    If server = "" Then server = "mx2.moscow-cargo.com"
+    
+    ' 2. Èçâëåêàåì ReplicaID
+    Dim replicaID As String
+    replicaID = ExtractBetween(rawText, "<REPLICA", ">")
+    replicaID = CleanID(replicaID)
+    
+    ' 3. Èçâëåêàåì ViewID äèíàìè÷åñêè
+    Dim viewID As String
+    viewID = ExtractBetween(rawText, "<VIEW", ">")
+    If viewID = "" Then viewID = ExtractBetween(rawText, "<VIEWUNID", ">")
+    viewID = CleanID(viewID)
+    If viewID = "" Then viewID = "811262795B7174B9C32572F2002639B4" ' fallback åñëè íå íàéäåí
+    
+    ' 4. Èçâëåêàåì NoteID
+    Dim noteID As String
+    noteID = ExtractBetween(rawText, "<NOTE", ">")
+    noteID = CleanID(noteID)
+    
+    ' 5. Ôîðìèðóåì èòîãîâóþ ññûëêó
+    ConvertNotesLink = "notes://" & server & "/" & replicaID & "/" & viewID & "/" & noteID
+    Exit Function
+    
+ErrorHandler:
+    ConvertNotesLink = ""
+End Function
+
+' ===== ÂÑÏÎÌÎÃÀÒÅËÜÍÛÅ ÔÓÍÊÖÈÈ =====
+
+' Èçâëå÷åíèå òåêñòà ìåæäó òåãàìè
+Private Function ExtractBetween(text As String, startTag As String, endTag As String) As String
+    Dim startPos As Long, endPos As Long
+    startPos = InStr(text, startTag)
+    If startPos > 0 Then
+        startPos = startPos + Len(startTag)
+        endPos = InStr(startPos, text, endTag)
+        If endPos > 0 Then
+            ExtractBetween = Mid(text, startPos, endPos - startPos)
+            ExtractBetween = Trim(ExtractBetween)
+        End If
+    End If
+End Function
+
+' Î÷èñòêà ñåðâåðà
+Private Function CleanServer(server As String) As String
+    server = Trim(server)
+    If Right(server, 1) = "/" Then server = Left(server, Len(server) - 1)
+    server = Replace(server, "http://", "")
+    server = Replace(server, "https://", "")
+    CleanServer = server
+End Function
+
+' Î÷èñòêà ID (ReplicaID, ViewID è NoteID)
+Private Function CleanID(rawID As String) As String
+    ' Óäàëÿåì âñ¸ ëèøíåå
+    rawID = Replace(rawID, " ", "")
+    rawID = Replace(rawID, ":", "")
+    rawID = Replace(rawID, "-", "")
+    
+    ' Óäàëÿåì ÂÑÅ âõîæäåíèÿ "OF" è "ON" (íå òîëüêî â íà÷àëå)
+    rawID = Replace(rawID, "OF", "")
+    rawID = Replace(rawID, "ON", "")
+    
+    CleanID = UCase(rawID)
+End Function
+
+' Ïîëó÷åíèå òåêñòà èç áóôåðà îáìåíà
+Private Function GetClipboardText() As String
+    On Error Resume Next
+    Dim objData As New MSForms.DataObject
+    objData.GetFromClipboard
+    GetClipboardText = objData.GetText
+    Set objData = Nothing
+    If Err.Number <> 0 Then GetClipboardText = ""
+    On Error GoTo 0
+End Function
+
+' Êîïèðîâàíèå òåêñòà â áóôåð îáìåíà
+Private Sub CopyToClipboard(text As String)
+    On Error Resume Next
+    Dim objData As New MSForms.DataObject
+    objData.SetText text
+    objData.PutInClipboard
+    Set objData = Nothing
+    On Error GoTo 0
+End Sub
+
+
+
+Private Sub btnImagePast_Click()
+    Dim clipboard As New MSForms.DataObject
+    Dim tempFilePath As String
+    Dim img As StdPicture
+    
+    ' Âðåìåííûé ôàéë äëÿ ñîõðàíåíèÿ
+    tempFilePath = Environ("TEMP") & "\screenshot.bmp"
+    
+    ' Óäàëÿåì ñòàðûé ôàéë, åñëè ñóùåñòâóåò
+    If Dir(tempFilePath) <> "" Then Kill tempFilePath
+    
+    On Error Resume Next
+    
+    ' Ïîëó÷àåì äàííûå èç áóôåðà îáìåíà
+    clipboard.GetFromClipboard
+    
+    ' Ïðîâåðÿåì íàëè÷èå èçîáðàæåíèÿ
+    If Not (clipboard.GetFormat(vbCFBitmap) Or clipboard.GetFormat("PNG") Or clipboard.GetFormat("JFIF")) Then
+        MsgBox "Áóôåð îáìåíà íå ñîäåðæèò èçîáðàæåíèÿ!", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Ïðîáóåì ñîõðàíèòü BMP
+    If clipboard.GetFormat(vbCFBitmap) Then
+        Set img = clipboard.GetData(vbCFBitmap)
+        If Not img Is Nothing Then
+            SavePicture img, tempFilePath
+            If Err.Number <> 0 Then
+                MsgBox "Îøèáêà ñîõðàíåíèÿ BMP: " & Err.description, vbCritical
+                Exit Sub
+            End If
+        End If
+    End If
+    
+    ' Åñëè íå ïîëó÷èëîñü ñ BMP, ïðîáóåì ÷åðåç PowerShell
+    If Dir(tempFilePath) = "" Then
+        SaveClipboardImageAsBMP tempFilePath
+        If Dir(tempFilePath) = "" Then
+            MsgBox "Íå óäàëîñü ñîõðàíèòü èçîáðàæåíèå íè îäíèì ñïîñîáîì!", vbCritical
+            Exit Sub
+        End If
+    End If
+    
+    ' Çàãðóæàåì â Image1
+    Set Me.Image1.Picture = LoadPicture(tempFilePath)
+    MsgBox "Ñêðèíøîò óñïåøíî çàãðóæåí!", vbInformation
+    
+    On Error GoTo 0
+End Sub
+
+Private Sub SaveClipboardImageAsBMP(filePath As String)
+    Dim psScript As String
+    psScript = "Add-Type -AssemblyName System.Windows.Forms; " & _
+               "$img = [Windows.Forms.Clipboard]::GetImage(); " & _
+               "if ($img -ne $null) { $img.Save('" & filePath & "', [System.Drawing.Imaging.ImageFormat]::Bmp) }; " & _
+               "exit 0"
+    Shell "powershell -ExecutionPolicy Bypass -Command """ & psScript & """", vbHide
+    Application.Wait Now + TimeValue("00:00:03")
+End Sub
+
+
+' Ôóíêöèÿ äëÿ èçâëå÷åíèÿ ññûëêè èç áóôåðà îáìåíà
+Private Function GetNotesLinkFromClipboard() As String
+    On Error Resume Next
+    Dim clipboard As New MSForms.DataObject
+    Dim clipText As String
+    
+    clipboard.GetFromClipboard
+    clipText = clipboard.GetText(1) ' 1 = CF_TEXT
+    
+    If InStr(clipText, "notes://") > 0 Then
+        GetNotesLinkFromClipboard = clipText
+    Else
+        GetNotesLinkFromClipboard = ""
+    End If
+    
+    Set clipboard = Nothing
+End Function
+
+Private Sub btnLinkOpen_Click()
+    Dim notesLink As String
+    
+    ' Ïîëó÷àåì ññûëêó èç ïîëÿ ôîðìû
+    notesLink = Trim(Me.txtLinkOut.Value)
+    
+    ' Ïðîâåðÿåì, åñòü ëè ññûëêà
+    If notesLink = "" Then
+        MsgBox "Ïîëå ññûëêè ïóñòîå!", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Óáåäèìñÿ, ÷òî ññûëêà íà÷èíàåòñÿ ñ notes://
+    If Not LCase(Left(notesLink, 8)) = "notes://" Then
+        notesLink = "notes://" & notesLink
+    End If
+    
+    ' Çàìåíÿåì âñå îáðàòíûå ñëåøè íà ïðÿìûå (åñëè åñòü)
+    notesLink = Replace(notesLink, "\", "/")
+    
+    ' Ïûòàåìñÿ îòêðûòü ññûëêó
+    On Error Resume Next
+    ThisWorkbook.FollowHyperlink notesLink
+    If Err.Number <> 0 Then
+        ' Åñëè íå ñðàáîòàëî, ïðîáóåì ÷åðåç Shell
+        Shell "cmd /c start """" """ & notesLink & """", vbHide
+        If Err.Number <> 0 Then
+            MsgBox "Íå óäàëîñü îòêðûòü ññûëêó!" & vbCrLf & _
+                   "Îøèáêà: " & Err.description & vbCrLf & _
+                   "Ññûëêà: " & notesLink, vbCritical
+        End If
+    End If
+    On Error GoTo 0
+End Sub
+
+' Ôóíêöèÿ äëÿ êîððåêòèðîâêè ïðîòîêîëà ññûëêè
+Private Function EnsureNotesProtocol(link As String) As String
+    link = Trim(link)
+    
+    ' Åñëè ññûëêà óæå íà÷èíàåòñÿ ñ notes:// èëè notes:, îñòàâëÿåì êàê åñòü
+    If LCase(Left(link, 8)) = "notes://" Or LCase(Left(link, 6)) = "notes:" Then
+        EnsureNotesProtocol = link
+        Exit Function
+    End If
+    
+    ' Äîáàâëÿåì notes:// åñëè íóæíî
+    If InStr(link, "//") = 0 Then
+        EnsureNotesProtocol = "notes://" & link
+    Else
+        EnsureNotesProtocol = "notes:" & link
+    End If
+    
+    ' Çàìåíÿåì âñå îáðàòíûå ñëåøè íà ïðÿìûå
+    EnsureNotesProtocol = Replace(EnsureNotesProtocol, "\", "/")
+End Function
+
+
+
+
+Private Sub btnPaste_Click()
+    On Error Resume Next
+    Dim objData As DataObject
+    Dim strHTML As String
+    Dim strPlainText As String
+    Dim finalText As String
+    
+    ' Äîáàâëÿåì ññûëêó ñ ïîäïèñüþ ïåðåä îñíîâíûì òåêñòîì
+    If Me.txtLinkOut.Value <> "" Then
+        finalText = "Ññûëêà íà äîêóìåíò: " & Me.txtLinkOut.Value & vbCrLf & vbCrLf
+    Else
+        finalText = ""
+    End If
+    
+    ' Ñîçäàåì îáúåêò äëÿ ðàáîòû ñ áóôåðîì îáìåíà
+    Set objData = New DataObject
+    
+    ' Ïîëó÷àåì äàííûå èç áóôåðà îáìåíà
+    objData.GetFromClipboard
+    
+    ' Ïûòàåìñÿ ïîëó÷èòü HTML-ôîðìàòèðîâàííûé òåêñò
+    strHTML = objData.GetText(xlClipboardFormatHTML)
+    
+    If strHTML <> "" Then
+        ' Åñëè ïîëó÷èëè HTML - ïðåîáðàçóåì åãî â ïðîñòîé òåêñò ñ ñîõðàíåíèåì ïåðåíîñîâ ñòðîê
+        strPlainText = ConvertHTMLToPlainText(strHTML)
+        finalText = finalText & strPlainText
+    Else
+        ' Åñëè HTML íåò - âñòàâëÿåì êàê îáû÷íûé òåêñò
+        strPlainText = objData.GetText
+        finalText = finalText & strPlainText
+    End If
+    
+    ' Âñòàâëÿåì èòîãîâûé òåêñò â ïîëå îïèñàíèÿ
+    Me.txtDescription.Value = finalText
+    
+    ' Î÷èùàåì îáúåêò
+    Set objData = Nothing
+End Sub
+
+' Ôóíêöèÿ äëÿ ïðåîáðàçîâàíèÿ HTML â ïðîñòîé òåêñò ñ ñîõðàíåíèåì ñòðóêòóðû
+Private Function ConvertHTMLToPlainText(htmlText As String) As String
+    Dim result As String
+    Dim i As Long
+    Dim inTag As Boolean
+    
+    ' Ïðîñòåéøèé ïàðñåð HTML (óïðîùåííûé)
+    inTag = False
+    result = ""
+    
+    For i = 1 To Len(htmlText)
+        Dim currentChar As String
+        currentChar = Mid(htmlText, i, 1)
+        
+        If currentChar = "<" Then
+            inTag = True
+        ElseIf currentChar = ">" Then
+            inTag = False
+        ElseIf Not inTag Then
+            ' Çàìåíÿåì HTML-ñóùíîñòè íà ñîîòâåòñòâóþùèå ñèìâîëû
+            If Mid(htmlText, i, 4) = "&lt;" Then
+                result = result & "<"
+                i = i + 3
+            ElseIf Mid(htmlText, i, 4) = "&gt;" Then
+                result = result & ">"
+                i = i + 3
+            ElseIf Mid(htmlText, i, 5) = "&amp;" Then
+                result = result & "&"
+                i = i + 4
+            ElseIf Mid(htmlText, i, 6) = "&quot;" Then
+                result = result & """"
+                i = i + 5
+            ElseIf Mid(htmlText, i, 6) = "&nbsp;" Then
+                result = result & " "
+                i = i + 5
+            ElseIf currentChar = vbCr Or currentChar = vbLf Then
+                ' Ïðîïóñêàåì óïðàâëÿþùèå ñèìâîëû èç HTML
+            Else
+                result = result & currentChar
+            End If
+        End If
+    Next i
+    
+    ' Óäàëÿåì ëèøíèå ïðîáåëû è ïåðåíîñû ñòðîê
+    result = Trim(result)
+    result = Replace(result, vbCrLf & vbCrLf, vbCrLf)
+    result = Replace(result, vbCr & vbCr, vbCr)
+    result = Replace(result, vbLf & vbLf, vbLf)
+    
+    ConvertHTMLToPlainText = result
+End Function
+
+Private Sub btnTdy_Click()
+    Dim dayPart As String
+    Dim monthPart As String
+    Dim monthNames As Variant
+    
+    ' Ìàññèâ ñ íàçâàíèÿìè ìåñÿöåâ
+    monthNames = Array("ÿíâàðÿ", "ôåâðàëÿ", "ìàðòà", "àïðåëÿ", "ìàÿ", "èþíÿ", _
+                      "èþëÿ", "àâãóñòà", "ñåíòÿáðÿ", "îêòÿáðÿ", "íîÿáðÿ", "äåêàáðÿ")
+    
+    ' Ïîëó÷àåì äåíü è ìåñÿö
+    dayPart = Format(Date, "dd")
+    monthPart = monthNames(Month(Date) - 1)
+    
+    ' Ôîðìèðóåì èòîãîâóþ ñòðîêó (íàïðèìåð, "12 àïðåëÿ")
+    txtFltDate.text = dayPart & " " & monthPart
+End Sub
+
+Private Sub btnTemplates_Click()
+    ' Ñîçäàåì è ïîêàçûâàåì ôîðìó ñ øàáëîíàìè
+    Dim templatesForm As userTemplatesForm
+    Set templatesForm = New userTemplatesForm
+    
+    ' Ïîêàçûâàåì ôîðìó êàê ìîäàëüíîå îêíî
+    templatesForm.Show vbModal
+    
+    ' Ïîñëå çàêðûòèÿ ôîðìû âñòàâëÿåì âûáðàííûé øàáëîí (åñëè áûë âûáðàí)
+    If templatesForm.SelectedTemplate <> "" Then
+        txtPreResult.text = templatesForm.SelectedTemplate
+    End If
+    
+    ' Îñâîáîæäàåì ðåñóðñû
+    Set templatesForm = Nothing
+End Sub
+
+Private Sub ChkTGO_Click()
+    If Me.ChkTGO.Value Then
+        ' Åñëè ÷åêáîêñ îòìå÷åí
+        Me.cboEqp1.Value = "Òðàêòîð1"
+        Me.cboEqp2.Value = "Ëåíòà òðàíñïîðòåðà"
+        Me.cboEqp4.Value = "Òåëåãà ÒÏ/DAV"
+        
+        ' Óñòàíîâêà òåêóùåé äàòû è âðåìåíè äëÿ âûáðàííîãî îáîðóäîâàíèÿ
+        Me.txtDateEqp1Start.Value = Format(Date, "dd.mm.yyyy")
+        Me.txtTimeEqp1Start.Value = "00:00"
+        Me.txtDateEqp1End.Value = Format(Date, "dd.mm.yyyy")
+        Me.txtTimeEqp1End.Value = "00:30"
+        
+        Me.txtDateEqp2Start.Value = Format(Date, "dd.mm.yyyy")
+        Me.txtTimeEqp2Start.Value = "00:00"
+        Me.txtDateEqp2End.Value = Format(Date, "dd.mm.yyyy")
+        Me.txtTimeEqp2End.Value = "00:15"
+        
+        Me.txtDateEqp4Start.Value = Format(Date, "dd.mm.yyyy")
+        Me.txtTimeEqp4Start.Value = "00:00"
+        Me.txtDateEqp4End.Value = Format(Date, "dd.mm.yyyy")
+        Me.txtTimeEqp4End.Value = "00:30"
+    Else
+        ' Åñëè ÷åêáîêñ ñíÿò - î÷èùàåì ïîëÿ
+        Me.cboEqp1.Value = ""
+        Me.cboEqp2.Value = ""
+        Me.cboEqp4.Value = ""
+        
+        Me.txtDateEqp1Start.Value = ""
+        Me.txtTimeEqp1Start.Value = ""
+        Me.txtDateEqp1End.Value = ""
+        Me.txtTimeEqp1End.Value = ""
+        
+        Me.txtDateEqp2Start.Value = ""
+        Me.txtTimeEqp2Start.Value = ""
+        Me.txtDateEqp2End.Value = ""
+        Me.txtTimeEqp2End.Value = ""
+        
+        Me.txtDateEqp4Start.Value = ""
+        Me.txtTimeEqp4Start.Value = ""
+        Me.txtDateEqp4End.Value = ""
+        Me.txtTimeEqp4End.Value = ""
+    End If
+End Sub
+
+
+
+
+
+Private Sub lblDateSend_Click()
+
+End Sub
+
+' Ýëåìåíòû óïðàâëåíèÿ ôîðìû
+Private Sub UserForm_Initialize()
+    ' Èíèöèàëèçàöèÿ ComboBox äëÿ îðãàíèçàöèé
+    Me.cboReqStatus.Value = "Íîâàÿ" ' ßâíî óñòàíîâèòå çíà÷åíèå ïî óìîë÷àíèþ
+    Me.cboOrg.List = Array("ÎÎÎ 'ÍÂ Òåõíèê'", "Àâèàêîìïàíèÿ Ðîññèÿ", "ÎÎÎ 'Àýðîôëîò Òåõíèêñ'", "Ñìàðòàâèà")
+    
+    ' Èçíà÷àëüíî ñêðûâàåì Frame1
+    Me.Frame1.Visible = False
+    
+    ' Èçíà÷àëüíî ñêðûâàåì Frame2
+    Me.Frame2.Visible = False
+    
+    
+    ' Íàñòðàèâàåì ListBox
+    With Me.FlightList
+        .ColumnHeads = False ' Ìû ñàìè äîáàâèëè çàãîëîâêè
+        .MultiSelect = fmMultiSelectSingle
+        .ListStyle = fmListStylePlain
+    End With
+    
+    ' Çàãðóæàåì äàííûå
+    LoadFormattedData
+    
+    ' Èíèöèàëèçàöèÿ ComboBox äëÿ òèïîâ óñëóã
+    Me.cboType.List = Array("Òðàíñïîðòèðîâêà ÀÒÈ", "Ïîãðóçêà/Ðàçãðóçêà", "Ñìåøàííûå ðàáîòû", "Òåõàïòå÷êè")
+    
+    ' Èíèöèàëèçàöèÿ ComboBox äëÿ îáîðóäîâàíèÿ
+    Me.cboEqp1.List = Array("Òðàêòîð1", "Ïîãðóç÷èê1", "Ïàëëåòîïîãðóç÷èê")
+    Me.cboEqp2.List = Array("Òðàêòîð2", "Ïîãðóç÷èê2", "Ëåíòà òðàíñïîðòåðà")
+    Me.cboEqp3.List = Array("Òåëåãà 20FT1")
+    Me.cboEqp4.List = Array("Òåëåãà 20FT2", "Òåëåãà 10FT/ÒÏ/DAV")
+    Me.cboManager.List = Array("Ìàðòûíîâ Ä.Þ", "Ñèëåöêèé Ê.Â", "Ìàëüöåâ Ð.Ñ", "Õàðçèí À.Ì", "ÈÎ Ãîëóáåâ Þ.À", "ÈÎ Àíäðåé÷èê À.Å")
+    Me.cboReqStatus.List = Array("Íîâàÿ", "Â ðàáîòå", "Çàêðûòà/Îêàçàíà", "Îòïèñàíà")
+    
+    ' Èíèöèàëèçàöèÿ ComboBox äëÿ ðîäèòåëüñêèõ çàäà÷
+    Me.cboParentTask.List = GetMainTasksList()
+    Me.cboParentTask.Enabled = False
+    
+    ' Óñòàíîâêà òåêóùåé äàòû è âðåìåíè
+    Me.txtDate.Value = Format(Date, "dd.mm.yyyy")
+    Me.txtTime.Value = Format(Time, "hh:mm")
+    
+    ' Òåõàïòå÷êà
+    Me.txtFktPcs.Value = 0
+    Me.txtFktWght.Value = 0#
+    ' Óñòàíîâêà òåêóùåé äàòû è âðåìåíè äëÿ ðåéñà òåõàïòå÷êè
+    Me.txtFltDate.Value = ""
+    
+    Me.ChkTGO.Value = False
+    
+    
+    
+    ' Èíèöèàëèçàöèÿ ïîëåé îáîðóäîâàíèÿ
+    ResetEquipmentFields
+    
+    ' Íàñòðîéêà ôîðìû
+    Me.Caption = "Íîâàÿ çàÿâêà"
+    Me.chkIsSubtask.Value = False
+    Me.cboOrg.SetFocus
+    Set TaskColors = New Collection
+    
+    Me.txtPreResult = ""
+    Me.txtLinkOut = ""
+
+End Sub
+
+' Ïîëó÷åíèå ñïèñêà îñíîâíûõ çàäà÷ (áåç ïîäçàäà÷)
+Private Function GetMainTasksList() As Variant
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.count, "A").End(xlUp).Row
+    
+    Dim tasks() As String
+    ReDim tasks(1 To lastRow - 1)
+    
+    Dim i As Long, count As Long
+    count = 0
+    
+    For i = 2 To lastRow
+        ' Áåðåì òîëüêî îñíîâíûå çàÿâêè (áåç òî÷åê â íîìåðå)
+        If InStr(ws.Cells(i, 1).Value, ".") = 0 Then
+            count = count + 1
+            tasks(count) = ws.Cells(i, 1).Value
+        End If
+    Next i
+    
+    If count > 0 Then
+        ReDim Preserve tasks(1 To count)
+        GetMainTasksList = tasks
+    Else
+        GetMainTasksList = Array("")
+    End If
+End Function
+
+' Îáðàáîò÷èê èçìåíåíèÿ ñîñòîÿíèÿ CheckBox "Ýòî ïîäçàäà÷à"
+Private Sub chkIsSubtask_Click()
+    Me.cboParentTask.Enabled = (Me.chkIsSubtask.Value = True)
+    If Me.chkIsSubtask.Value Then
+        Me.cboParentTask.SetFocus
+    Else
+        Me.cboOrg.SetFocus
+    End If
+End Sub
+
+' Îáðàáîò÷èêè èçìåíåíèÿ îáîðóäîâàíèÿ
+Private Sub cboEqp1_Change()
+    UpdateEquipmentFields 1
+End Sub
+
+Private Sub cboEqp2_Change()
+    UpdateEquipmentFields 2
+End Sub
+
+Private Sub cboEqp3_Change()
+    UpdateEquipmentFields 3
+End Sub
+
+Private Sub cboEqp4_Change()
+    UpdateEquipmentFields 4
+End Sub
+
+' Îáíîâëåíèå ïîëåé äàò/âðåìåíè äëÿ îáîðóäîâàíèÿ
+Private Sub UpdateEquipmentFields(eqpNum As Integer)
+    Dim ctrl As Control
+    Set ctrl = Me.Controls("cboEqp" & eqpNum)
+    
+    If ctrl.Value <> "" Then
+        Me.Controls("txtDateEqp" & eqpNum & "Start").Value = Format(Date, "dd.mm.yyyy")
+        Me.Controls("txtTimeEqp" & eqpNum & "Start").Value = "00:00"
+        Me.Controls("txtDateEqp" & eqpNum & "End").Value = Format(Date, "dd.mm.yyyy")
+        Me.Controls("txtTimeEqp" & eqpNum & "End").Value = "00:00"
+    Else
+        Me.Controls("txtDateEqp" & eqpNum & "Start").Value = ""
+        Me.Controls("txtTimeEqp" & eqpNum & "Start").Value = ""
+        Me.Controls("txtDateEqp" & eqpNum & "End").Value = ""
+        Me.Controls("txtTimeEqp" & eqpNum & "End").Value = ""
+    End If
+End Sub
+
+' Ñáðîñ ïîëåé îáîðóäîâàíèÿ
+Private Sub ResetEquipmentFields()
+    Dim i As Integer
+    For i = 1 To 4
+        Me.Controls("cboEqp" & i).Value = ""
+        Me.Controls("txtDateEqp" & i & "Start").Value = ""
+        Me.Controls("txtTimeEqp" & i & "Start").Value = ""
+        Me.Controls("txtDateEqp" & i & "End").Value = ""
+        Me.Controls("txtTimeEqp" & i & "End").Value = ""
+    Next i
+End Sub
+
+' Ñáðîñ âñåé ôîðìû
+Private Sub ResetFormFields()
+    Me.txtPreResult = ""
+    Me.cboOrg.Value = ""
+    Me.cboType.Value = ""
+    Me.cboReqStatus.Value = "Íîâàÿ"
+    Me.txtTitle.Value = ""
+    Me.txtDescription.Value = ""
+    Me.cboManager.Value = ""
+    Me.txtDate.Value = Format(Date, "dd.mm.yyyy")
+    Me.txtTime.Value = Format(Time, "hh:mm")
+    Me.chkIsSubtask.Value = False
+    Me.cboParentTask.Value = ""
+    Me.cboParentTask.Enabled = False
+    Me.txtFktPcs.Value = ""
+    Me.txtFktWght.Value = ""
+    Me.txtFlt.Value = ""
+    Me.txtFltDate.Value = Format(Date, "dd.mm.yyyy")
+    Me.txtLinkOut.Value = ""
+    
+    ResetEquipmentFields
+End Sub
+
+' Îáðàáîò÷èê êíîïêè OK
+Private Sub cmdOK_Click()
+    
+    ' Ïðîâåðêà îáÿçàòåëüíûõ ïîëåé
+    If Not ValidateRequiredFields() Then Exit Sub
+    
+    ' Ïðîâåðêà è ôîðìàòèðîâàíèå äàòû/âðåìåíè
+    Dim formattedDate As String, formattedTime As String
+    If Not FormatDateTimeFields(formattedDate, formattedTime) Then Exit Sub
+    
+    ' Ïðîâåðêà äàííûõ îáîðóäîâàíèÿ
+    If Not ValidateEquipmentData() Then Exit Sub
+    
+    ' Ñáîð äàííûõ îáîðóäîâàíèÿ
+    Dim eqpData As Collection
+    Set eqpData = GetStructuredEquipmentData()
+    
+    ' Äîáàâëåíèå èëè îáíîâëåíèå çàïèñè ' fktWght As String, fktFlt As String, fltDate As String)
+    If Me.Tag = "" Then
+        ' Íîâàÿ çàïèñü
+        AddNewEntryToSheet _
+            entryDate:=formattedDate, _
+            entryTime:=formattedTime, _
+            org:=Me.cboOrg.Value, _
+            serviceType:=Me.cboType.Value, _
+            status:=Me.cboReqStatus.Value, _
+            description:=Me.txtDescription.Value, _
+            title:=Me.txtTitle.Value, _
+            manager:=Me.cboManager.Value, _
+            fktPcs:=Me.txtFktPcs.Value, _
+            fktWght:=Me.txtFktWght.Value, _
+            fktFlt:=Me.txtFlt.Value, _
+            fktFltDate:=formattedDate, _
+            preResult:=Me.txtPreResult.Value, _
+            linkOut:=Me.txtLinkOut.Value, _
+            equipmentData:=eqpData, _
+            IsSubtask:=(Me.chkIsSubtask.Value = True), _
+            parentTask:=Me.cboParentTask.Value
+    Else
+        ' Ðåäàêòèðîâàíèå ñóùåñòâóþùåé çàïèñè
+        UpdateEntry _
+            duNumber:=Me.Tag, _
+            entryDate:=formattedDate, _
+            entryTime:=formattedTime, _
+            org:=Me.cboOrg.Value, _
+            serviceType:=Me.cboType.Value, _
+            status:=Me.cboReqStatus.Value, _
+            description:=Me.txtDescription.Value, _
+            preResult:=Me.txtPreResult.Value, _
+            title:=Me.txtTitle.Value, _
+            manager:=Me.cboManager.Value, _
+            fktPcs:=Me.txtFktPcs.Value, _
+            fktWght:=Me.txtFktWght.Value, _
+            fktFlt:=Me.txtFlt.Value, _
+            fktFltDate:=formattedDate, _
+            linkOut:=Me.txtLinkOut.Value, _
+            equipmentData:=eqpData
+    End If
+    
+    Unload Me
+End Sub
+
+' Ïðîâåðêà îáÿçàòåëüíûõ ïîëåé
+Private Function ValidateRequiredFields() As Boolean
+    If Me.cboOrg.Value = "" Then
+        MsgBox "Âûáåðèòå êëèåíòà èç ñïèñêà!", vbExclamation, "Íå çàïîëíåíî"
+        Me.cboOrg.SetFocus
+        ValidateRequiredFields = False
+        Exit Function
+    End If
+    
+    If Me.cboType.Value = "" Then
+        MsgBox "Âûáåðèòå òèï óñëóãè èç ñïèñêà!", vbExclamation, "Íå çàïîëíåíî"
+        Me.cboType.SetFocus
+        ValidateRequiredFields = False
+        Exit Function
+    End If
+    
+    If Me.cboManager.Value = "" Then
+        MsgBox "Óêàæèòå Ôàìèëèþ ÍÑ!", vbExclamation, "Íå çàïîëíåíî"
+        Me.cboManager.SetFocus
+        ValidateRequiredFields = False
+        Exit Function
+    End If
+    
+    If Me.chkIsSubtask.Value And Me.cboParentTask.Value = "" Then
+        MsgBox "Âûáåðèòå îñíîâíóþ çàÿâêó äëÿ ïîäçàäà÷è!", vbExclamation
+        Me.cboParentTask.SetFocus
+        ValidateRequiredFields = False
+        Exit Function
+    End If
+    
+    If Me.cboReqStatus.Value = "" Then
+        MsgBox "Âûáåðèòå ñòàòóñ çàÿâêè!", vbExclamation
+        Me.cboReqStatus.SetFocus
+        Exit Function
+    End If
+    
+    ValidateRequiredFields = True
+End Function
+
+' Ïðîâåðêà è ôîðìàòèðîâàíèå äàòû/âðåìåíè
+Private Function FormatDateTimeFields(ByRef outDate As String, ByRef outTime As String) As Boolean
+    On Error Resume Next
+    outDate = Format(CDate(Me.txtDate.Value), "dd.mm.yyyy")
+    If Err.Number <> 0 Then
+        MsgBox "Ââåäèòå êîððåêòíóþ äàòó â ôîðìàòå ÄÄ.ÌÌ.ÃÃÃÃ", vbExclamation, "Îøèáêà ôîðìàòà"
+        Me.txtDate.SetFocus
+        FormatDateTimeFields = False
+        Exit Function
+    End If
+    
+    outTime = Format(CDate(Me.txtTime.Value), "hh:mm")
+    If Err.Number <> 0 Then
+        MsgBox "Ââåäèòå êîððåêòíîå âðåìÿ â ôîðìàòå ××:ÌÌ", vbExclamation, "Îøèáêà ôîðìàòà"
+        Me.txtTime.SetFocus
+        FormatDateTimeFields = False
+        Exit Function
+    End If
+    On Error GoTo 0
+    
+    FormatDateTimeFields = True
+End Function
+
+' Ïðîâåðêà äàííûõ îáîðóäîâàíèÿ
+Private Function ValidateEquipmentData() As Boolean
+    Dim i As Integer
+    For i = 1 To 4
+        If Me.Controls("cboEqp" & i).Value <> "" Then
+            ' Ïðîâåðêà äàòû íà÷àëà
+            If Me.Controls("txtDateEqp" & i & "Start").Value = "" Then
+                MsgBox "Ââåäèòå äàòó íà÷àëà äëÿ îáîðóäîâàíèÿ " & i, vbExclamation
+                Me.Controls("txtDateEqp" & i & "Start").SetFocus
+                ValidateEquipmentData = False
+                Exit Function
+            End If
+            
+            ' Ïðîâåðêà âðåìåíè íà÷àëà
+            If Me.Controls("txtTimeEqp" & i & "Start").Value = "" Then
+                MsgBox "Ââåäèòå âðåìÿ íà÷àëà äëÿ îáîðóäîâàíèÿ " & i, vbExclamation
+                Me.Controls("txtTimeEqp" & i & "Start").SetFocus
+                ValidateEquipmentData = False
+                Exit Function
+            End If
+            
+            ' Ïðîâåðêà äàòû îêîí÷àíèÿ
+            If Me.Controls("txtDateEqp" & i & "End").Value = "" Then
+                MsgBox "Ââåäèòå äàòó îêîí÷àíèÿ äëÿ îáîðóäîâàíèÿ " & i, vbExclamation
+                Me.Controls("txtDateEqp" & i & "End").SetFocus
+                ValidateEquipmentData = False
+                Exit Function
+            End If
+            
+            ' Ïðîâåðêà âðåìåíè îêîí÷àíèÿ
+            If Me.Controls("txtTimeEqp" & i & "End").Value = "" Then
+                MsgBox "Ââåäèòå âðåìÿ îêîí÷àíèÿ äëÿ îáîðóäîâàíèÿ " & i, vbExclamation
+                Me.Controls("txtTimeEqp" & i & "End").SetFocus
+                ValidateEquipmentData = False
+                Exit Function
+            End If
+        End If
+    Next i
+    
+    ValidateEquipmentData = True
+End Function
+
+' Ñáîð ñòðóêòóðèðîâàííûõ äàííûõ îáîðóäîâàíèÿ
+Private Function GetStructuredEquipmentData() As Collection
+    Dim eqpData As New Collection
+    Dim i As Integer
+    
+    For i = 1 To 4
+        If Me.Controls("cboEqp" & i).Value <> "" Then
+            Dim eqpItem As Object
+            Set eqpItem = CreateObject("Scripting.Dictionary")
+            
+            eqpItem.Add "Type", Me.Controls("cboEqp" & i).Value
+            eqpItem.Add "DateStart", Me.Controls("txtDateEqp" & i & "Start").Value
+            eqpItem.Add "TimeStart", Me.Controls("txtTimeEqp" & i & "Start").Value
+            eqpItem.Add "DateEnd", Me.Controls("txtDateEqp" & i & "End").Value
+            eqpItem.Add "TimeEnd", Me.Controls("txtTimeEqp" & i & "End").Value
+            
+            eqpData.Add eqpItem
+        End If
+    Next i
+    
+    Set GetStructuredEquipmentData = eqpData
+End Function
+
+' Äîáàâëåíèå íîâîé çàïèñè íà ëèñò
+Public Sub AddNewEntryToSheet( _
+    ByVal entryDate As String, _
+    ByVal entryTime As String, _
+    ByVal org As String, _
+    ByVal serviceType As String, _
+    ByVal status As String, _
+    ByVal description As String, _
+    ByVal title As String, _
+    ByVal manager As String, _
+    ByVal fktPcs As String, _
+    ByVal fktWght As String, _
+    ByVal fktFlt As String, _
+    ByVal fktFltDate As String, _
+    ByVal preResult As String, _
+    ByVal equipmentData As Collection, _
+    ByVal linkOut As String, _
+    ByVal IsSubtask As Boolean, _
+    ByVal parentTask As String)
+    
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    Dim NextRow As Long
+    NextRow = ws.Cells(ws.Rows.count, "A").End(xlUp).Row + 1
+    If NextRow < 6 Then NextRow = 6
+    
+    ' Ôîðìèðîâàíèå íîìåðà çàÿâêè
+    Dim newDU As String
+    If IsSubtask Then
+        ' Äëÿ ïîäçàäà÷è
+        newDU = parentTask & "." & GetNextSubtaskNumber(parentTask)
+    Else
+        ' Äëÿ îñíîâíîé çàÿâêè
+        newDU = "ÄÓ-" & Format(NextRow - 1, "000")
+    End If
+    
+    ' Ðàçáëîêèðîâêà ëèñòà
+    ws.Unprotect Password:="123"
+    
+    ' Çàïèñü äàííûõ
+    With ws.Range("A" & NextRow)
+        .NumberFormat = "@"
+        .Value = newDU
+        .Offset(0, 1).Value = entryDate
+        .Offset(0, 2).Value = entryTime
+        .Offset(0, 3).Value = org
+        .Offset(0, 4).Value = serviceType
+        .Offset(0, 57).Value = status
+        .Offset(0, 51).Value = title
+        .Offset(0, 54).Value = description
+        .Offset(0, 55).Value = manager
+        .Offset(0, 52).Value = preResult
+        .Offset(0, 47).Value = fktPcs
+        .Offset(0, 48).Value = fktWght
+        .Offset(0, 49).Value = fktFlt
+        .Offset(0, 50).Value = fktFltDate
+        .Offset(0, 59).Value = linkOut
+        
+        ' Äëÿ ïîäçàäà÷è çàïèñûâàåì ðîäèòåëüñêóþ çàÿâêó
+        If IsSubtask Then
+            .Offset(0, 1).Value = parentTask ' Êîëîíêà A
+        End If
+    End With
+    
+    ' Çàïèñü äàííûõ îáîðóäîâàíèÿ
+    UpdateEquipmentData ws.Range("A" & NextRow), equipmentData
+    
+    ' Âîññòàíîâëåíèå çàùèòû
+    ws.Protect Password:="123", UserInterfaceOnly:=True
+    
+    ' Àíèìàöèÿ äîáàâëåííîé ñòðîêè
+    BlinkRow ws, NextRow
+    
+    MsgBox "Äîáàâëåíà çàïèñü: " & newDU, vbInformation
+End Sub
+
+' Ïîëó÷åíèå ñëåäóþùåãî íîìåðà ïîäçàäà÷è äëÿ îñíîâíîé çàÿâêè
+Private Function GetNextSubtaskNumber(parentTask As String) As Integer
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.count, "A").End(xlUp).Row
+    
+    Dim maxNumber As Integer
+    maxNumber = 0
+    
+    Dim i As Long
+    For i = 2 To lastRow
+        If InStr(ws.Cells(i, 1).Value, parentTask & ".") = 1 Then
+            Dim currentNumber As Integer
+            currentNumber = Val(Mid(ws.Cells(i, 1).Value, Len(parentTask) + 2))
+            If currentNumber > maxNumber Then maxNumber = currentNumber
+        End If
+    Next i
+    
+    GetNextSubtaskNumber = maxNumber + 1
+End Function
+
+' Îáíîâëåíèå äàííûõ îáîðóäîâàíèÿ
+Private Sub UpdateEquipmentData(rng As Range, eqData As Collection)
+    ' Î÷èñòêà ñòàðûõ äàííûõ
+    rng.Offset(0, 5).Resize(1, 42).ClearContents
+    
+    ' Ñ÷åò÷èêè îáîðóäîâàíèÿ
+    Dim tractorCount As Integer: tractorCount = 0
+    Dim beltCount As Integer: beltCount = 0
+    Dim highloaderCount As Integer: highloaderCount = 0
+    Dim loaderCount As Integer: loaderCount = 0
+    Dim cart20Count As Integer: cart20Count = 0
+    Dim cart10Count As Integer: cart10Count = 0
+    Dim cartTPCount As Integer: cartTPCount = 0
+    
+    ' Âðåìåííûå ïåðåìåííûå äëÿ õðàíåíèÿ äàííûõ ïåðâîãî òðàêòîðà êàæäîãî òèïà
+    Dim tractor1Data As Boolean: tractor1Data = False
+    Dim tractor2Data As Boolean: tractor2Data = False
+    
+    Dim loader1Data As Boolean: loader1Data = False
+    Dim loader2Data As Boolean: loader2Data = False
+    
+    Dim cart201Data As Boolean: cart201Data = False
+    Dim cart202Data As Boolean: cart202Data = False
+    
+    ' Çàïîëíåíèå äàííûõ
+    Dim eqpItem As Object
+    For Each eqpItem In eqData
+        Select Case eqpItem("Type")
+            Case "Òðàêòîð1"
+                tractorCount = tractorCount + 1
+                If Not tractor1Data Then
+                    rng.Offset(0, 19).Value = eqpItem("DateStart")  ' T
+                    rng.Offset(0, 20).Value = eqpItem("TimeStart") ' U
+                    rng.Offset(0, 21).Value = eqpItem("DateEnd")   ' V
+                    rng.Offset(0, 22).Value = eqpItem("TimeEnd")   ' W
+                    tractor1Data = True
+                End If
+                
+            Case "Òðàêòîð2"
+                tractorCount = tractorCount + 1
+                If Not tractor2Data Then
+                    rng.Offset(0, 23).Value = eqpItem("DateStart")  ' X
+                    rng.Offset(0, 24).Value = eqpItem("TimeStart") ' Y
+                    rng.Offset(0, 25).Value = eqpItem("DateEnd")   ' Z
+                    rng.Offset(0, 26).Value = eqpItem("TimeEnd")   ' ZZ
+                    tractor2Data = True
+                End If
+                
+                
+            Case "Ëåíòà òðàíñïîðòåðà"
+                beltCount = beltCount + 1
+                If beltCount = 1 Then
+                    rng.Offset(0, 11).Value = eqpItem("DateStart")  ' L
+                    rng.Offset(0, 12).Value = eqpItem("TimeStart") ' M
+                    rng.Offset(0, 13).Value = eqpItem("DateEnd")   ' N
+                    rng.Offset(0, 14).Value = eqpItem("TimeEnd")   ' O
+                End If
+                
+            Case "Ïàëëåòîïîãðóç÷èê"
+                highloaderCount = highloaderCount + 1
+                If highloaderCount = 1 Then
+                    rng.Offset(0, 15).Value = eqpItem("DateStart")  ' P
+                    rng.Offset(0, 16).Value = eqpItem("TimeStart") ' Q
+                    rng.Offset(0, 17).Value = eqpItem("DateEnd")   ' R
+                    rng.Offset(0, 18).Value = eqpItem("TimeEnd")   ' S
+                End If
+                
+            Case "Ïîãðóç÷èê1"
+                loaderCount = loaderCount + 1
+                If Not loader1Data Then
+                    rng.Offset(0, 27).Value = eqpItem("DateStart") ' AB
+                    rng.Offset(0, 28).Value = eqpItem("TimeStart") ' AC
+                    rng.Offset(0, 29).Value = eqpItem("DateEnd")   ' AD
+                    rng.Offset(0, 30).Value = eqpItem("TimeEnd")   ' AE
+                    loader1Data = True
+                End If
+            
+            Case "Ïîãðóç÷èê2"
+                loaderCount = loaderCount + 1
+                If Not loader2Data Then
+                    rng.Offset(0, 31).Value = eqpItem("DateStart") ' AF
+                    rng.Offset(0, 32).Value = eqpItem("TimeStart") ' AG
+                    rng.Offset(0, 33).Value = eqpItem("DateEnd")   ' AH
+                    rng.Offset(0, 34).Value = eqpItem("TimeEnd")   ' AI
+                    loader2Data = True
+                End If
+                
+            Case "Òåëåãà 20FT1"
+                cart20Count = cart20Count + 1
+                If Not cart201Data Then
+                    rng.Offset(0, 35).Value = eqpItem("DateStart") ' AJ
+                    rng.Offset(0, 36).Value = eqpItem("TimeStart") ' AK
+                    rng.Offset(0, 37).Value = eqpItem("DateEnd")   ' AL
+                    rng.Offset(0, 38).Value = eqpItem("TimeEnd")   ' AM
+                    cart201Data = True
+                End If
+            
+             Case "Òåëåãà 20FT2"
+                cart20Count = cart20Count + 1
+                If Not cart202Data Then
+                    rng.Offset(0, 39).Value = eqpItem("DateStart") ' AN
+                    rng.Offset(0, 40).Value = eqpItem("TimeStart") ' AO
+                    rng.Offset(0, 41).Value = eqpItem("DateEnd")   ' AP
+                    rng.Offset(0, 42).Value = eqpItem("TimeEnd")   ' AQ
+                    cart202Data = True
+                End If
+                
+            Case "Òåëåãà 10FT/ÒÏ/DAV"
+                cart10Count = cart10Count + 1
+                If cart10Count = 1 Then
+                    rng.Offset(0, 43).Value = eqpItem("DateStart") ' AR
+                    rng.Offset(0, 44).Value = eqpItem("TimeStart") ' AS
+                    rng.Offset(0, 45).Value = eqpItem("DateEnd")   ' AT
+                    rng.Offset(0, 46).Value = eqpItem("TimeEnd")    'AU
+                End If
+            Case "Òåëåãà 10FT/ÒÏ/DAV"
+                cartTPCount = cartTPCount + 1
+                If cartTPCount = 1 Then
+                    rng.Offset(0, 43).Value = eqpItem("DateStart") ' AR
+                    rng.Offset(0, 44).Value = eqpItem("TimeStart") ' AS
+                    rng.Offset(0, 45).Value = eqpItem("DateEnd")   ' AT
+                    rng.Offset(0, 46).Value = eqpItem("TimeEnd")    'AU
+                End If
+        End Select
+    Next
+    
+    ' Çàïèñü êîëè÷åñòâà îáîðóäîâàíèÿ
+    If tractorCount > 0 Then rng.Offset(0, 7).Value = tractorCount ' H
+    If beltCount > 0 Then rng.Offset(0, 5).Value = beltCount ' F
+    If highloaderCount > 0 Then rng.Offset(0, 6).Value = highloaderCount ' G
+    If loaderCount > 0 Then rng.Offset(0, 8).Value = loaderCount  ' I
+    If cart20Count > 0 Then rng.Offset(0, 9).Value = cart20Count  ' J
+    If cart10Count > 0 Then rng.Offset(0, 10).Value = cart10Count  ' K
+    If cartTPCount > 0 Then rng.Offset(0, 10).Value = cartTPCount  ' K
+End Sub
+
+' Îáíîâëåíèå ñóùåñòâóþùåé çàïèñè
+Private Sub UpdateEntry( _
+    ByVal duNumber As String, _
+    ByVal entryDate As String, _
+    ByVal entryTime As String, _
+    ByVal org As String, _
+    ByVal serviceType As String, _
+    ByVal status As String, _
+    ByVal description As String, _
+    ByVal title As String, _
+    ByVal manager As String, _
+    ByVal fktPcs As String, _
+    ByVal fktWght As String, _
+    ByVal fktFlt As String, _
+    ByVal fktFltDate As String, _
+    ByVal preResult As String, _
+    ByVal linkOut As String, _
+    ByVal equipmentData As Collection)
+    
+    Dim ws As Worksheet
+    Dim foundRow As Range
+    
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    Set foundRow = ws.Columns("A").Find(What:=duNumber, LookIn:=xlValues, LookAt:=xlWhole)
+    
+    If foundRow Is Nothing Then
+        MsgBox "Îøèáêà: çàïèñü íå íàéäåíà!", vbCritical
+        Exit Sub
+    End If
+    
+    ' Ðàçáëîêèðîâêà ëèñòà
+    ws.Unprotect Password:="123"
+    
+    ' Îáíîâëåíèå äàííûõ
+    With foundRow
+        .Offset(0, 1).Value = entryDate
+        .Offset(0, 2).Value = entryTime
+        .Offset(0, 3).Value = org
+        .Offset(0, 4).Value = serviceType
+        .Offset(0, 57).Value = status
+        .Offset(0, 51).Value = title
+        .Offset(0, 54).Value = description
+        .Offset(0, 55).Value = manager
+        .Offset(0, 52).Value = preResult
+        .Offset(0, 47).Value = fktPcs
+        .Offset(0, 48).Value = fktWght
+        .Offset(0, 49).Value = fktFlt
+        .Offset(0, 50).Value = fktFltDate
+        .Offset(0, 59).Value = linkOut
+        
+        ' Îáíîâëåíèå îáîðóäîâàíèÿ
+        UpdateEquipmentData foundRow, equipmentData
+    End With
+    
+    ' Âîññòàíîâëåíèå çàùèòû
+    ws.Protect Password:="123", UserInterfaceOnly:=True
+    
+    ' Àíèìàöèÿ îáíîâëåííîé ñòðîêè
+    BlinkRow ws, foundRow.Row
+    
+    MsgBox "Äàííûå óñïåøíî îáíîâëåíû!", vbInformation
+End Sub
+
+' Àíèìàöèÿ ìèãàíèÿ ñòðîêè
+Private Sub BlinkRow(ws As Worksheet, rowNum As Long)
+    Dim i As Integer
+    Dim rng As Range
+    Dim startTime As Double
+    
+    Set rng = ws.Rows(rowNum)
+    
+    ' Ñîõðàíåíèå òåêóùåãî âûäåëåíèÿ
+    Dim oldSelection As Range
+    Set oldSelection = ws.Application.Selection
+    
+    ' Âûäåëåíèå ñòðîêè
+    rng.Select
+    
+    ' Ìèãàíèå
+    For i = 1 To BLINK_COUNT
+        rng.Interior.color = HIGHLIGHT_COLOR
+        Delay BLINK_DELAY_MS
+        
+        rng.Interior.color = NORMAL_COLOR
+        If i < BLINK_COUNT Then
+            Delay BLINK_DELAY_MS
+        End If
+    Next i
+    
+    ' Âîññòàíîâëåíèå âûäåëåíèÿ
+    If Not oldSelection Is Nothing Then oldSelection.Select
+    rng.Interior.color = NORMAL_COLOR
+End Sub
+
+' Ôóíêöèÿ çàäåðæêè
+Private Sub Delay(ms As Long)
+    Dim start As Double
+    start = Timer
+    Do While Timer < start + ms / 1000
+        DoEvents
+    Loop
+End Sub
+
+' Èíèöèàëèçàöèÿ ôîðìû â ðåæèìå ðåäàêòèðîâàíèÿ
+Public Function InitForEdit(duNumber As String) As Boolean
+    On Error GoTo ErrorHandler
+    
+    Dim ws As Worksheet
+    Dim foundRow As Range
+    
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    Set foundRow = ws.Columns("A").Find(What:=duNumber, LookIn:=xlValues, LookAt:=xlWhole)
+    
+    If foundRow Is Nothing Then
+        MsgBox "Çàïèñü ñ íîìåðîì " & duNumber & " íå íàéäåíà!", vbExclamation
+        InitForEdit = False
+        Exit Function
+    End If
+    
+    
+    ' Çàïîëíåíèå ôîðìû äàííûìè
+    LoadEntryData foundRow
+    
+    ' Íàñòðîéêà ôîðìû
+    Me.Tag = duNumber
+    Me.Caption = "Ðåäàêòèðîâàíèå " & duNumber
+    Me.cmdOk.Caption = "Îáíîâèòü"
+    
+    ' Ïðîâåðêà, ÿâëÿåòñÿ ëè çàïèñü ïîäçàäà÷åé
+    If foundRow.Offset(0, 56).Value <> "" Then ' Êîëîíêà P
+        Me.chkIsSubtask.Value = True
+        Me.cboParentTask.Value = foundRow.Offset(0, 56).Value
+        Me.cboParentTask.Enabled = False
+    End If
+    
+    InitForEdit = True
+    Exit Function
+    
+ErrorHandler:
+    MsgBox "Îøèáêà ïðè çàãðóçêå äàííûõ: " & Err.description, vbCritical
+    InitForEdit = False
+End Function
+
+' Çàãðóçêà äàííûõ çàïèñè â ôîðìó
+Private Sub LoadEntryData(rng As Range)
+    ' Î÷èñòêà ôîðìû
+    ResetFormFields
+    
+    ' Ïîêàçûâàåì èëè ñêðûâàåì Frame1 â çàâèñèìîñòè îò òèïà óñëóãè
+    Me.Frame1.Visible = (Me.cboType.Value = "Òåõàïòå÷êè")
+    
+    ' Îñíîâíûå äàííûå
+    With rng
+        Me.cboOrg.Value = .Offset(0, 3).Value
+        Me.cboType.Value = .Offset(0, 4).Value
+        Me.txtDate.Value = Format(.Offset(0, 1).Value, "dd.mm.yyyy")
+        Me.txtTime.Value = Format(.Offset(0, 2).Value, "hh:mm")
+        Me.cboReqStatus.Value = .Offset(0, 57).Value
+        Me.txtTitle.Value = .Offset(0, 51).Value
+        Me.txtDescription.Value = .Offset(0, 54).Value
+        Me.cboManager.Value = .Offset(0, 55).Value
+        Me.txtPreResult.Value = .Offset(0, 52).Value
+        Me.txtFktPcs.Value = .Offset(0, 47).Value
+        Me.txtFktWght.Value = .Offset(0, 48).Value
+        Me.txtFltDate.Value = .Offset(0, 50).Value
+        Me.txtFlt.Value = .Offset(0, 49).Value
+        Me.txtLinkOut.Value = .Offset(0, 59).Value
+    End With
+    
+    ' Çàãðóçêà äàííûõ îáîðóäîâàíèÿ
+    LoadEquipmentData rng
+End Sub
+
+' Çàãðóçêà äàííûõ îáîðóäîâàíèÿ
+Private Sub LoadEquipmentData(rng As Range)
+    ' Î÷èñòêà ïîëåé îáîðóäîâàíèÿ
+    ResetEquipmentFields
+    
+    
+    ' Ëåíòà òðàíñïîðòåðíàÿ (êîëîíêà F - êîëè÷åñòâî, L-O - äàòû/âðåìÿ)
+    If IsNumeric(rng.Offset(0, 5).Value) And rng.Offset(0, 5).Value > 0 Then
+        Me.cboEqp2.Value = "Ëåíòà òðàíñïîðòåðà"
+        If Not IsEmpty(rng.Offset(0, 11).Value) Then
+            Me.txtDateEqp2Start.Value = Format(rng.Offset(0, 11).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp2Start.Value = Format(rng.Offset(0, 12).Value, "hh:mm")
+        End If
+        If Not IsEmpty(rng.Offset(0, 13).Value) Then
+            Me.txtDateEqp2End.Value = Format(rng.Offset(0, 13).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp2End.Value = Format(rng.Offset(0, 14).Value, "hh:mm")
+        End If
+    End If
+    
+    
+    
+      ' Ïàëëåòîïîãðóç÷èê (êîëîíêà G - êîëè÷åñòâî, P-S - äàòû/âðåìÿ)
+    If IsNumeric(rng.Offset(0, 6).Value) And rng.Offset(0, 6).Value > 0 Then
+        Me.cboEqp1.Value = "Ïàëëåòîïîãðóç÷èê"
+        If Not IsEmpty(rng.Offset(0, 15).Value) Then
+            Me.txtDateEqp1Start.Value = Format(rng.Offset(0, 15).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp1Start.Value = Format(rng.Offset(0, 16).Value, "hh:mm")
+        End If
+        If Not IsEmpty(rng.Offset(0, 11).Value) Then
+            Me.txtDateEqp1End.Value = Format(rng.Offset(0, 17).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp1End.Value = Format(rng.Offset(0, 18).Value, "hh:mm")
+        End If
+    End If
+    
+    ' Òðàêòîðû
+    eqpCount = rng.Offset(0, 7).Value ' H
+    If eqpCount > 0 Then
+        ' Òðàêòîð1
+        If Not IsEmpty(rng.Offset(0, 19).Value) Then
+            Me.cboEqp1.Value = "Òðàêòîð1"
+            Me.txtDateEqp1Start.Value = Format(rng.Offset(0, 19).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp1Start.Value = Format(rng.Offset(0, 20).Value, "hh:mm")
+            Me.txtDateEqp1End.Value = Format(rng.Offset(0, 21).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp1End.Value = Format(rng.Offset(0, 22).Value, "hh:mm")
+        End If
+        
+        ' Òðàêòîð2
+        If Not IsEmpty(rng.Offset(0, 23).Value) Then
+            Me.cboEqp2.Value = "Òðàêòîð2"
+            Me.txtDateEqp2Start.Value = Format(rng.Offset(0, 23).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp2Start.Value = Format(rng.Offset(0, 24).Value, "hh:mm")
+            Me.txtDateEqp2End.Value = Format(rng.Offset(0, 25).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp2End.Value = Format(rng.Offset(0, 26).Value, "hh:mm")
+        End If
+    End If
+    
+    ' Òåëåãè 20FT
+    eqpCount = rng.Offset(0, 9).Value ' J
+    If eqpCount > 0 Then
+        ' Òåëåãà 20FT1
+        If Not IsEmpty(rng.Offset(0, 35).Value) Then
+            Me.cboEqp3.Value = "Òåëåãà 20FT1"
+            Me.txtDateEqp3Start.Value = Format(rng.Offset(0, 35).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp3Start.Value = Format(rng.Offset(0, 36).Value, "hh:mm")
+            Me.txtDateEqp3End.Value = Format(rng.Offset(0, 37).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp3End.Value = Format(rng.Offset(0, 38).Value, "hh:mm")
+        End If
+        
+        ' Òåëåãà 20FT2
+        If Not IsEmpty(rng.Offset(0, 39).Value) Then
+            Me.cboEqp4.Value = "Òåëåãà 20FT2"
+            Me.txtDateEqp4Start.Value = Format(rng.Offset(0, 39).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp4Start.Value = Format(rng.Offset(0, 40).Value, "hh:mm")
+            Me.txtDateEqp4End.Value = Format(rng.Offset(0, 41).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp4End.Value = Format(rng.Offset(0, 42).Value, "hh:mm")
+        End If
+    End If
+        
+    
+    
+    ' Ïîãðóç÷èêè
+    eqpCount = rng.Offset(0, 8).Value ' I
+    If eqpCount > 0 Then
+        ' Ïðîâåðÿåì îáà âàðèàíòà ïîãðóç÷èêîâ íåçàâèñèìî
+        If Not IsEmpty(rng.Offset(0, 27).Value) Then ' Ïîãðóç÷èê1
+            Me.cboEqp1.Value = "Ïîãðóç÷èê1"
+            Me.txtDateEqp1Start.Value = Format(rng.Offset(0, 27).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp1Start.Value = Format(rng.Offset(0, 28).Value, "hh:mm")
+            Me.txtDateEqp1End.Value = Format(rng.Offset(0, 29).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp1End.Value = Format(rng.Offset(0, 30).Value, "hh:mm")
+        End If
+        
+        If Not IsEmpty(rng.Offset(0, 31).Value) Then ' Ïîãðóç÷èê2
+            Me.cboEqp2.Value = "Ïîãðóç÷èê2"
+            Me.txtDateEqp2Start.Value = Format(rng.Offset(0, 31).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp2Start.Value = Format(rng.Offset(0, 32).Value, "hh:mm")
+            Me.txtDateEqp2End.Value = Format(rng.Offset(0, 33).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp2End.Value = Format(rng.Offset(0, 34).Value, "hh:mm")
+        End If
+    End If
+    
+
+    
+    
+    ' Òåëåãè 10FT è ÒÏ/DAV (êîëîíêà K - êîëè÷åñòâî, AR-AU - äàòû/âðåìÿ)
+    eqpCount = rng.Offset(0, 10).Value ' K
+    If eqpCount > 0 Then
+        ' Ïðîâåðÿåì, êàêàÿ èìåííî òåëåãà óêàçàíà
+        If Not IsEmpty(rng.Offset(0, 43).Value) Then
+            ' Ïðîâåðÿåì, åñòü ëè äàííûå äëÿ ÒÏ/DAV
+            If InStr(1, rng.Offset(0, 43).Value, "Òåëåãà 10FT/ÒÏ/DAV", vbTextCompare) > 0 Then
+                Me.cboEqp4.Value = "Òåëåãà 10FT/ÒÏ/DAV"
+            Else
+                Me.cboEqp4.Value = "Òåëåãà 10FT/ÒÏ/DAV"
+            End If
+                        
+            Me.txtDateEqp4Start.Value = Format(rng.Offset(0, 43).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp4Start.Value = Format(rng.Offset(0, 44).Value, "hh:mm")
+            Me.txtDateEqp4End.Value = Format(rng.Offset(0, 45).Value, "dd.mm.yyyy")
+            Me.txtTimeEqp4End.Value = Format(rng.Offset(0, 46).Value, "hh:mm")
+        End If
+    End If
+End Sub
+
+' Îáðàáîò÷èê êíîïêè Îòìåíà
+Private Sub cmdCancel_Click()
+    Unload Me
+End Sub
+
+' Îáðàáîò÷èêè äëÿ íîâûõ êíîïîê:
+Private Sub cmdGroup_Click()
+    Dim selectedTask As String
+    selectedTask = Me.cboParentTask.Value
+    
+    If selectedTask = "" Then
+        MsgBox "Âûáåðèòå îñíîâíóþ çàäà÷ó äëÿ ãðóïïèðîâêè!", vbExclamation
+        Exit Sub
+    End If
+    
+    HighlightTaskAndSubtasks selectedTask
+End Sub
+
+Private Sub cmdResetHighlight_Click()
+    ResetHighlight
+
+Sub HighlightTaskAndSubtasks(mainTask As String)
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.count, "A").End(xlUp).Row
+    
+    ' Ãåíåðèðóåì ñëó÷àéíûé ñâåòëûé öâåò
+    Dim r As Integer, g As Integer, b As Integer
+    r = 200 + Rnd() * 55  ' Îò 200 äî 255
+    g = 200 + Rnd() * 55
+    b = 200 + Rnd() * 55
+    
+    ' Ñáðàñûâàåì âñå ïîäñâåòêè
+    ws.Cells.Interior.ColorIndex = xlNone
+    
+    ' Íàõîäèì è ïîäñâå÷èâàåì îñíîâíóþ çàäà÷ó
+    Dim mainTaskRow As Range
+    Set mainTaskRow = ws.Columns("A").Find(What:=mainTask, LookIn:=xlValues, LookAt:=xlWhole)
+    
+    If Not mainTaskRow Is Nothing Then
+        With mainTaskRow.EntireRow
+            .Interior.color = RGB(r, g, b)
+            .Font.Bold = True
+        End With
+        
+        ' Íàõîäèì è ïîäñâå÷èâàåì âñå ïîäçàäà÷è
+        Dim i As Long
+        For i = 2 To lastRow
+            If ws.Range("A" & i).Value Like mainTask & "*" And ws.Range("A" & i).Value <> mainTask Then
+                With ws.Rows(i)
+                    .Interior.color = RGB(r, g, b)
+                    .Font.Bold = False
+                End With
+            End If
+        Next i
+    Else
+        MsgBox "Îñíîâíàÿ çàäà÷à íå íàéäåíà!", vbExclamation
+    End If
+End Sub
+
+Private Sub ResetHighlight()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets("Ëèñò1")
+    ws.Cells.Interior.ColorIndex = xlNone
+    FormatTasksHierarchy  ' Âûçûâàåì ôóíêöèþ èç ìîäóëÿ ëèñòà
+End Sub
+
+Private Sub cboType_Change()
+    ' Ïîêàçûâàåì Frame1 òîëüêî åñëè âûáðàíî "Òåõàïòå÷êè"
+    Me.Frame1.Visible = (Me.cboType.Value = "Òåõàïòå÷êè")
+    
+    ' Åñëè âûáîð î÷èùåí, òîæå ñêðûâàåì Frame1
+    If Me.cboType.Value = "" Then
+        Me.Frame1.Visible = False
+    End If
+    
+End Sub
+
+Private Sub LoadFormattedData()
+    Dim ws As Worksheet
+    Dim rng As Range
+    Dim cell As Range
+    Dim i As Long, rowIndex As Long
+    Dim timeColIndex As Long
+    
+    Set ws = ThisWorkbook.Sheets("Ðåéñû")
+    
+    timeColIndex = 2 ' Óêàæèòå èíäåêñ êîëîíêè ñ âðåìåíåì (íà÷èíàÿ ñ 0)
+    
+    ' Î÷èùàåì ListBox
+    Me.FlightList.Clear
+    Me.FlightList.ColumnCount = 4 ' Óêàæèòå íóæíîå êîëè÷åñòâî êîëîíîê
+    
+    ' Äîáàâëÿåì çàãîëîâêè
+    With Me.FlightList
+        .AddItem
+        .List(0, 0) = "Ðåéñ"
+        .List(0, 1) = "Íàïðàâëåíèå"
+        .List(0, 2) = "Âðåìÿ"
+        .List(0, 3) = "Ñòàòóñ"
+    End With
+    
+    ' Çàïîëíÿåì äàííûå
+    rowIndex = 1 ' Íà÷èíàåì ñ 1 (0 - çàãîëîâêè)
+    For i = 2 To ws.Cells(ws.Rows.count, "A").End(xlUp).Row
+        Me.FlightList.AddItem
+        Me.FlightList.List(rowIndex, 0) = ws.Cells(i, 1).Value ' Ðåéñ
+        Me.FlightList.List(rowIndex, 1) = ws.Cells(i, 2).Value ' Íàïðàâëåíèå
+        
+        ' Ôîðìàòèðóåì âðåìÿ
+        If IsDate(ws.Cells(i, 3).Value) Then
+            Me.FlightList.List(rowIndex, 2) = Format(ws.Cells(i, 3).Value, "hh:mm")
+        Else
+            Me.FlightList.List(rowIndex, 2) = ws.Cells(i, 3).Value
+        End If
+        
+        Me.FlightList.List(rowIndex, 3) = ws.Cells(i, 4).Value ' Ñòàòóñ
+        rowIndex = rowIndex + 1
+    Next i
+End Sub
+
+
+
+Private Sub FlightList_DrawItem(ByVal Index As Long, ByVal hDC As Long, _
+                              ByVal Left As Single, ByVal Top As Single, _
+                              ByVal Right As Single, ByVal Bottom As Single, _
+                              ByVal Selected As Boolean)
+    If Index > 0 Then ' Ïðîïóñêàåì çàãîëîâîê
+        If Index Mod 2 = 0 Then
+            ' ×åòíûå ñòðîêè - îäèí öâåò
+            Me.FlightList.BackColor = RGB(240, 240, 240)
+        Else
+            ' Íå÷åòíûå ñòðîêè - äðóãîé öâåò
+            Me.FlightList.BackColor = RGB(255, 255, 255)
+        End If
+    End If
+End Sub
+
+Private Sub AutoSizeColumns()
+    Dim colWidths As String
+    Dim i As Integer
+    
+    For i = 0 To Me.FlightList.ColumnCount - 1
+        ' Óñòàíàâëèâàåì øèðèíó ïî ñîäåðæèìîìó
+        colWidths = colWidths & Me.FlightList.ColumnWidth(i) & ";"
+    Next i
+    
+    Me.FlightList.ColumnWidths = Left(colWidths, Len(colWidths) - 1)
+End Sub
+
+
+Private Sub btnList_Click()
+    ' Ïîêàçûâàåì Frame2 ñ ListBox ïðè íàæàòèè êíîïêè
+    Me.Frame2.Visible = True
+    Me.FlightList.SetFocus ' Óñòàíàâëèâàåì ôîêóñ íà ListBox
+    
+    ' Çàïîëíÿåì ListBox äàííûìè (ïðèìåð ñ íîìåðàìè ðåéñîâ)
+    LoadFormattedData
+End Sub
+
+
+Private Sub FlightList_DblClick(ByVal Cancel As MSForms.ReturnBoolean)
+    If Me.FlightList.ListIndex > 0 Then ' Ïðîïóñêàåì çàãîëîâîê
+        ' Áåðåì çíà÷åíèå èç ïåðâîãî ñòîëáöà (èëè ëþáîãî äðóãîãî)
+        Me.txtFlt.Value = Me.FlightList.Column(0) ' Èëè óêàæèòå íóæíûé ñòîëáåö
+        
+        ' Ìîæíî ñîáðàòü äàííûå èç íåñêîëüêèõ ñòîëáöîâ:
+        ' Me.txtFlt.Value = Me.FlightList.Column(0) & " | " & Me.FlightList.Column(1)
+        
+        Me.Frame2.Visible = False
+    End If
+End Sub
+
+Private Sub btnCancel_Click()
+    Frame2.Visible = False
+End Sub
+
+
+
+
+' ?????????? ?????? "????????"
+Private Sub btnClear_Click()
+    ' ??????? ???? txtPreResult
+    txtPreResult.text = ""
+End Sub
