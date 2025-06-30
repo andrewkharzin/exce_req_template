@@ -1,0 +1,687 @@
+'-----------------------------------------------------------
+' ÌÎÄÓËÜ ÄËß ÔÎÐÌÈÐÎÂÀÍÈß PDF ÎÒ×ÅÒÀ (ÌÎÄÅÐÍÈÇÈÐÎÂÀÍÍÀß ÂÅÐÑÈß)
+'-----------------------------------------------------------
+Option Explicit
+
+' Êîíñòàíòû
+Private Const SHEET_PASSWORD As String = "123"
+' Äîáàâëÿåì íîâóþ ôóíêöèþ äëÿ ñîçäàíèÿ Word ôàéëà ñ ïðèìå÷àíèåì
+Private Function ÑîçäàòüWordÑÏðèìå÷àíèåì(duNumber As String, ïðèìå÷àíèå As String) As String
+    On Error GoTo ErrorHandler
+    
+    Dim wordApp As Object
+    Dim wordDoc As Object
+    Dim filePath As String
+    
+    ' Ñîçäàåì ïóòü äëÿ ôàéëà Word
+    filePath = Environ("TEMP") & "\Ïðèìå÷àíèå_" & duNumber & "_" & Format(Now(), "yyyy-mm-dd") & ".docx"
+    
+    ' Ñîçäàåì íîâûé ýêçåìïëÿð Word
+    Set wordApp = CreateObject("Word.Application")
+    Set wordDoc = wordApp.Documents.Add
+    
+    ' Íàñòðàèâàåì äîêóìåíò
+    With wordDoc
+        ' Äîáàâëÿåì çàãîëîâîê
+        .Content.InsertAfter "Ïðèìå÷àíèå ê äîêóìåíòó " & duNumber & vbCrLf & vbCrLf
+        .Paragraphs(1).Range.Font.Bold = True
+        .Paragraphs(1).Range.Font.Size = 14
+        
+        ' Äîáàâëÿåì ñàìî ïðèìå÷àíèå
+        .Content.InsertAfter ïðèìå÷àíèå & vbCrLf
+        .Paragraphs(2).Range.Font.Size = 12
+        
+        ' Ñîõðàíÿåì äîêóìåíò
+        .SaveAs2 filePath, 16 ' 16 = wdFormatDocumentDefault (DOCX)
+        .Close
+    End With
+    
+    ' Çàêðûâàåì Word
+    wordApp.Quit
+    
+    ' Î÷èùàåì îáúåêòû
+    Set wordDoc = Nothing
+    Set wordApp = Nothing
+    
+    ÑîçäàòüWordÑÏðèìå÷àíèåì = filePath
+    Exit Function
+    
+ErrorHandler:
+    MsgBox "Îøèáêà ïðè ñîçäàíèè Word äîêóìåíòà:" & vbCrLf & Err.description, vbCritical
+    If Not wordDoc Is Nothing Then wordDoc.Close False
+    If Not wordApp Is Nothing Then wordApp.Quit
+    ÑîçäàòüWordÑÏðèìå÷àíèåì = ""
+End Function
+
+
+
+Public Sub ÑîçäàòüÎò÷åòPDF_NEW_2()
+    On Error GoTo ErrorHandler
+    
+    Dim selectedDU As String
+    Dim pdfPath As String
+    Dim wsData As Worksheet, wsReport As Worksheet
+    
+    ' 1. ÏÐÎÂÅÐÊÀ ËÈÑÒÎÂ
+    If Not ÏðîâåðèòüËèñòû(wsData, wsReport) Then Exit Sub
+    
+    ' 2. ÇÀÏÐÎÑ ÍÎÌÅÐÀ ÄÓ Ñ ÏÐÎÂÅÐÊÎÉ
+    Do
+        selectedDU = InputBox("Ââåäèòå íîìåð ÄÓ (íàïðèìåð, ÄÓ-002):", "Ôîðìèðîâàíèå îò÷åòà")
+        If selectedDU = "" Then Exit Sub
+        
+        ' Ïðîâåðêà ôîðìàòà íîìåðà
+        If Not selectedDU Like "ÄÓ-###" And Not selectedDU Like "ÄÓ-###*" Then
+            MsgBox "Íåêîððåêòíûé ôîðìàò íîìåðà! Èñïîëüçóéòå ôîðìàò: ÄÓ-001", vbExclamation
+        Else
+            Exit Do
+        End If
+    Loop
+    
+    ' 3. ÑÎÇÄÀÍÈÅ ÎÒ×ÅÒÀ
+    pdfPath = ÑîçäàòüPDFÎò÷åòÄÓ(selectedDU, wsData, wsReport)
+    
+    If pdfPath <> "" Then
+        ' Ïîêàçûâàåì ðåçóëüòàò
+        Shell "explorer.exe /select," & Chr(34) & pdfPath & Chr(34), vbNormalFocus
+        MsgBox "Îò÷åò óñïåøíî ñîçäàí!" & vbCrLf & pdfPath, vbInformation
+    End If
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "ÊÐÈÒÈ×ÅÑÊÀß ÎØÈÁÊÀ:" & vbCrLf & _
+           Err.description & vbCrLf & _
+           "Ñòðîêà: " & Erl, vbCritical
+End Sub
+' ==================== ÔÓÍÊÖÈÈ ÄËß ÎÒÏÐÀÂÊÈ EMAIL ====================
+
+
+
+' ==================== ÔÓÍÊÖÈÈ ÄËß ÎÒÏÐÀÂÊÈ EMAIL ====================
+
+Private Sub ÑîçäàòüÏèñüìîÑÎò÷åòîìÈÏðèìå÷àíèåì(pdfPath As String, wordPath As String, duNumber As String, foundRow As Range, notesLink As String)
+    On Error GoTo ErrorHandler
+    
+    Dim session As Object
+    Dim workspace As Object
+    Dim db As Object
+    Dim doc As Object
+    Dim uidoc As Object
+    Dim urlParts() As String
+    
+    ' Ïðîâåðêà íàëè÷èÿ ññûëêè
+    If notesLink = "" Then
+        MsgBox "Ññûëêà íà äîêóìåíò íå óêàçàíà!", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Êîððåêòèðîâêà ññûëêè
+    notesLink = EnsureNotesProtocol(notesLink)
+    
+    ' Èíèöèàëèçàöèÿ ñåññèè Lotus Notes
+    Set session = CreateObject("Notes.NotesSession")
+    Set workspace = CreateObject("Notes.NotesUIWorkspace")
+    Set db = session.GetDatabase("", "")
+    If Not db.IsOpen Then db.OpenMail
+    
+    ' Ïûòàåìñÿ îòêðûòü äîêóìåíò ðàçíûìè ñïîñîáàìè
+    On Error Resume Next
+    
+    ' Ñïîñîá 1: ×åðåç OpenDocumentWithParams
+    Set doc = workspace.OpenDocumentWithParams(notesLink, "")
+    
+    ' Ñïîñîá 2: Åñëè íå ñðàáîòàëî, ïðîáóåì èçâëå÷ü UNID è îòêðûòü ïî íåìó
+    If doc Is Nothing Then
+        Dim unid As String
+        unid = ExtractUNIDFromNotesLink(notesLink)
+        If unid <> "" Then
+            Set doc = db.GetDocumentByUNID(unid)
+        End If
+    End If
+    
+    ' Ñïîñîá 3: Åñëè âñå åùå íå ñðàáîòàëî, ïðîáóåì ÷åðåç UI
+    If doc Is Nothing Then
+        workspace.URLOpen notesLink
+        Application.Wait Now + TimeValue("00:00:03") ' Äàåì âðåìÿ íà îòêðûòèå
+        Set uidoc = workspace.CurrentDocument
+        If Not uidoc Is Nothing Then Set doc = uidoc.Document
+    End If
+    
+    On Error GoTo ErrorHandler
+    
+    If doc Is Nothing Then
+        MsgBox "Íå óäàëîñü îòêðûòü äîêóìåíò ïî ññûëêå!" & vbCrLf & _
+               "Ïîïðîáóéòå îòêðûòü ññûëêó âðó÷íóþ ÷åðåç êíîïêó 'Îòêðûòü ññûëêó'", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Ìîäèôèêàöèÿ äîêóìåíòà
+    With doc
+        ' Îáíîâëÿåì ïîëÿ ïèñüìà
+        .ReplaceItemValue "SendTo", "cargoops@moscow-cargo.com"
+        .ReplaceItemValue "CopyTo", ""
+        .ReplaceItemValue "BlindCopyTo", ""
+        .ReplaceItemValue "Subject", "Îò÷åò ïî óñëóãå: " & duNumber & " îò " & Format(Date, "dd.mm.yyyy")
+        
+        ' Äîáàâëÿåì âëîæåíèÿ ÷åðåç RichText
+        Dim rtItem As Object
+        Set rtItem = .GetFirstItem("Body")
+        If rtItem Is Nothing Then Set rtItem = .CreateRichTextItem("Body")
+        
+        If pdfPath <> "" And Dir(pdfPath) <> "" Then
+            Call rtItem.EmbedObject(1454, "", pdfPath, "Îò÷åò_" & duNumber & ".pdf")
+        End If
+        
+        If wordPath <> "" And Dir(wordPath) <> "" Then
+            Call rtItem.EmbedObject(1454, "", wordPath, "Ïðèìå÷àíèå_" & duNumber & ".docx")
+        End If
+        
+        .Save True, False ' Ñîõðàíÿåì ñ ôîðñèðîâàíèåì è áåç ñîçäàíèÿ îòâåòà
+    End With
+    
+    ' Îòêðûâàåì UI äîêóìåíòà äëÿ ïðîñìîòðà
+    Set uidoc = workspace.EditDocument(False, doc)
+    
+    ' Îáíîâëÿåì ñòàòóñ çàÿâêè
+    foundRow.Offset(0, 57).Value = "Îòïèñàíà"
+    foundRow.Worksheet.Parent.Save
+    
+    ' Óäàëåíèå âðåìåííûõ ôàéëîâ
+    If pdfPath <> "" Then Kill pdfPath
+    If wordPath <> "" Then Kill wordPath
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Îøèáêà ïðè ðàáîòå ñ äîêóìåíòîì Notes:" & vbCrLf & Err.description, vbCritical
+    On Error Resume Next
+    If pdfPath <> "" Then Kill pdfPath
+    If wordPath <> "" Then Kill wordPath
+    On Error GoTo 0
+End Sub
+
+' Ôóíêöèÿ äëÿ èçâëå÷åíèÿ UNID èç ññûëêè Notes
+Private Function ExtractUNIDFromNotesLink(notesLink As String) As String
+    Dim parts() As String
+    parts = Split(notesLink, "/")
+    If UBound(parts) >= 6 Then
+        ExtractUNIDFromNotesLink = parts(6)
+    Else
+        ExtractUNIDFromNotesLink = ""
+    End If
+End Function
+
+' Ôóíêöèÿ äëÿ êîððåêòèðîâêè ïðîòîêîëà ññûëêè
+Private Function EnsureNotesProtocol(link As String) As String
+    link = Trim(link)
+    If LCase(Left(link, 8)) <> "notes://" Then
+        EnsureNotesProtocol = "notes://" & link
+    Else
+        EnsureNotesProtocol = link
+    End If
+    EnsureNotesProtocol = Replace(EnsureNotesProtocol, "\", "/")
+End Function
+
+
+
+
+
+' ==================== ÂÑÏÎÌÎÃÀÒÅËÜÍÛÅ ÔÓÍÊÖÈÈ ====================
+
+Private Function ÏðîâåðèòüËèñòû(ByRef wsData As Worksheet, ByRef wsReport As Worksheet) As Boolean
+    On Error Resume Next
+    Set wsData = ThisWorkbook.Sheets("Ëèñò1")
+    Set wsReport = ThisWorkbook.Sheets("Ëèñò2")
+    On Error GoTo 0
+    
+    If wsData Is Nothing Then
+        MsgBox "Ëèñò 'Ëèñò1' íå íàéäåí â êíèãå!", vbCritical
+        Exit Function
+    End If
+    
+    If wsReport Is Nothing Then
+        MsgBox "Ëèñò 'Report' íå íàéäåí â êíèãå!", vbCritical
+        Exit Function
+    End If
+    
+    ' Ïðîâåðêà çàùèòû
+    If wsData.ProtectContents Then
+        wsData.Unprotect Password:=SHEET_PASSWORD
+    End If
+    
+    ÏðîâåðèòüËèñòû = True
+End Function
+
+Private Function ÑîçäàòüPDFÎò÷åòÄÓ(duNumber As String, wsData As Worksheet, wsReport As Worksheet) As String
+    On Error GoTo ErrorHandler
+    
+    Dim foundRow As Range
+    Dim pdfPath As String
+    Dim equipmentList As String
+    Dim equipmentUsage As String
+    Dim sendEmail As VbMsgBoxResult
+    Dim notesLink As String
+    
+    ' 1. ÏÎÈÑÊ ÄÀÍÍÛÕ
+    Set foundRow = ÍàéòèÄàííûåÏîÄÓ(duNumber, wsData)
+    If foundRow Is Nothing Then Exit Function
+    
+    ' 2. ÏÐÎÂÅÐÊÀ ÄÀÍÍÛÕ
+    If Not ÏðîâåðèòüÄàííûå(foundRow) Then Exit Function
+    
+    ' 3. ÔÎÐÌÈÐÎÂÀÍÈÅ ÑÏÈÑÊÀ ÎÁÎÐÓÄÎÂÀÍÈß Ñ ÊÎËÈ×ÅÑÒÂÎÌ È ÂÐÅÌÅÍÅÌ
+    equipmentList = ÑôîðìèðîâàòüÑïèñîêÎáîðóäîâàíèÿ(foundRow)
+    equipmentUsage = Ðàññ÷èòàòüÂðåìÿÈñïîëüçîâàíèÿ(foundRow)
+    
+    ' 4. ÇÀÏÎËÍÅÍÈÅ ØÀÁËÎÍÀ
+    ÇàïîëíèòüØàáëîí foundRow, wsReport, equipmentList, equipmentUsage
+    
+    ' 5. ÂÈÇÓÀËÜÍÀß ÏÐÎÂÅÐÊÀ Ñ ÄÎÏÎËÍÈÒÅËÜÍÎÉ ÊÍÎÏÊÎÉ ÎÒÏÐÀÂÊÈ
+    sendEmail = MsgBox("ÏÐîâåðèòü äàííûå ïåðåä ýêñïîðòîì â PDF?" & vbCrLf & _
+                      "Íàæìèòå 'Äà' äëÿ ïðååâðêè," & vbCrLf & _
+                      "'Íåò' äëÿ ïðîäîëæåíèÿ áåç ïðîâåðêè," & vbCrLf & _
+                       "'Îòïðàâêà ïî email' äëÿ îòïðàâêè ïî email.", _
+                      vbQuestion + vbYesNoCancel + vbDefaultButton1, _
+                       "Ïîäòâåðæäåíèå")
+    
+    Select Case sendEmail
+        Case vbYes
+            wsReport.Activate
+            If MsgBox("Äàííûå â øàáëîíå êîððåêòíû?", vbQuestion + vbYesNo) = vbNo Then
+                Exit Function
+            End If
+        Case vbCancel
+            ' Ïðîâåðÿåì ñòàòóñ çàÿâêè ïåðåä îòïðàâêîé
+            If foundRow.Offset(0, 57).Value <> "Çàêðûòà/Îêàçàíà" Then
+                MsgBox "Îòïðàâêà îò÷åòà âîçìîæíà òîëüêî äëÿ çàÿâîê ñî ñòàòóñîì 'Çàêðûòà'!", vbExclamation
+                Exit Function
+            End If
+            
+            ' Ïîëó÷àåì ññûëêó èç äàííûõ çàÿâêè
+            notesLink = foundRow.Offset(0, 59).Value
+            
+            ' Îòïðàâêà ïî email ñ ñîçäàíèåì PDF è Word (åñëè åñòü ïðèìå÷àíèå)
+            pdfPath = Environ("TEMP") & "\Îò÷åò_" & duNumber & "_" & Format(Now(), "yyyy-mm-dd") & ".pdf"
+            wsReport.ExportAsFixedFormat _
+                Type:=xlTypePDF, _
+                Filename:=pdfPath, _
+                Quality:=xlQualityStandard, _
+                IncludeDocProperties:=True, _
+                IgnorePrintAreas:=False
+                
+            ' Ñîçäàåì Word ôàéë, åñëè åñòü ïðèìå÷àíèå
+            Dim ïðèìå÷àíèå As String
+            ïðèìå÷àíèå = foundRow.Offset(0, 54).Value
+            Dim wordPath As String
+            If Trim(ïðèìå÷àíèå) <> "" Then
+                wordPath = ÑîçäàòüWordÑÏðèìå÷àíèåì(duNumber, ïðèìå÷àíèå)
+            End If
+            
+            ' Ìîäèôèöèðóåì ôóíêöèþ îòïðàâêè ïèñüìà äëÿ ðàáîòû ñ îáîèìè ôàéëàìè
+            ÑîçäàòüÏèñüìîÑÎò÷åòîìÈÏðèìå÷àíèåì pdfPath, wordPath, duNumber, foundRow, notesLink
+            
+            Î÷èñòèòüØàáëîí wsReport
+            Exit Function
+        Case vbNo
+            ' Ïðîäîëæèòü áåç ïðîâåðêè
+    End Select
+    
+    ' 6. ÑÎÇÄÀÍÈÅ PDF
+    pdfPath = Environ("TEMP") & "\Îò÷åò_" & duNumber & "_" & Format(Now(), "yyyy-mm-dd") & ".pdf"
+    
+    wsReport.ExportAsFixedFormat _
+        Type:=xlTypePDF, _
+        Filename:=pdfPath, _
+        Quality:=xlQualityStandard, _
+        IncludeDocProperties:=True, _
+        IgnorePrintAreas:=False
+        
+    
+    ' 7. Î×ÈÑÒÊÀ ØÀÁËÎÍÀ
+    Î÷èñòèòüØàáëîí wsReport
+    
+    ÑîçäàòüPDFÎò÷åòÄÓ = pdfPath
+    Exit Function
+    
+ErrorHandler:
+    MsgBox "Îøèáêà ïðè ñîçäàíèè îò÷åòà:" & vbCrLf & Err.description, vbCritical
+    ÑîçäàòüPDFÎò÷åòÄÓ = ""
+End Function
+
+Private Function ÍàéòèÄàííûåÏîÄÓ(duNumber As String, wsData As Worksheet) As Range
+    Dim lastRow As Long
+    Dim foundRow As Range
+    
+    lastRow = wsData.Cells(wsData.Rows.count, "A").End(xlUp).Row
+    
+    ' Ïîèñê ñ ó÷åòîì âîçìîæíûõ ïîäçàäà÷ (ôîðìàò ÄÓ-001.1)
+    Set foundRow = wsData.Range("A1:A" & lastRow).Find( _
+        What:=duNumber, _
+        LookIn:=xlValues, _
+        LookAt:=xlWhole, _
+        MatchCase:=False)
+    
+    If foundRow Is Nothing Then
+        MsgBox "Äîêóìåíò ñ íîìåðîì " & duNumber & " íå íàéäåí â ñòîëáöå A!", vbExclamation
+    Else
+        Debug.Print "ÍÀÉÄÅÍÀ ÇÀÏÈÑÜ: Ñòðîêà " & foundRow.Row
+    End If
+    
+    Set ÍàéòèÄàííûåÏîÄÓ = foundRow
+End Function
+
+Private Function ÏðîâåðèòüÄàííûå(foundRow As Range) As Boolean
+    ' Ïðîâåðêà îáÿçàòåëüíûõ ïîëåé
+    If Trim(foundRow.Offset(0, 3).Value) = "" Then  ' Çàêàç÷èê
+        MsgBox "Íå óêàçàí çàêàç÷èê äëÿ âûáðàííîãî ÄÓ!", vbExclamation
+        Exit Function
+    End If
+    
+    If Trim(foundRow.Offset(0, 4).Value) = "" Then  ' Óñëóãà
+        MsgBox "Íå óêàçàí òèï óñëóãè äëÿ âûáðàííîãî ÄÓ!", vbExclamation
+        Exit Function
+    End If
+    
+    ' Ëîãèðîâàíèå äàííûõ
+    Debug.Print "ÄÀÍÍÛÅ ÄËß ÎÒ×ÅÒÀ:"
+    Debug.Print "Íîìåð ÄÓ: " & foundRow.Value
+    Debug.Print "Çàêàç÷èê: " & foundRow.Offset(0, 3).Value
+    Debug.Print "Óñëóãà: " & foundRow.Offset(0, 4).Value
+    
+    ÏðîâåðèòüÄàííûå = True
+End Function
+
+Private Function ÑôîðìèðîâàòüÑïèñîêÎáîðóäîâàíèÿ(foundRow As Range) As String
+    Dim equipmentList As String
+    Dim i As Integer
+    Dim count As Integer
+    
+    ' Èíèöèàëèçàöèÿ ñòðîêè
+    equipmentList = ""
+    
+    ' Ëåíòà òðàíñïîðòåðíàÿ (êîëîíêà F - êîëè÷åñòâî)
+    count = Val(foundRow.Offset(0, 5).Value)
+    If count > 0 Then
+        For i = 1 To count
+            equipmentList = equipmentList & "Ëåíòà òðàíñïîðòåðíàÿ" & vbCrLf
+        Next i
+    End If
+    
+    ' Ïàëëåòîïîãðóç÷èê (êîëîíêà G - êîëè÷åñòâî)
+    count = Val(foundRow.Offset(0, 6).Value)
+    If count > 0 Then
+        For i = 1 To count
+            equipmentList = equipmentList & "Ïàëëåòîïîãðóç÷èê" & vbCrLf
+        Next i
+    End If
+    
+    ' Òðàêòîðû (êîëîíêà H - êîëè÷åñòâî)
+    count = Val(foundRow.Offset(0, 7).Value)
+    If count > 0 Then
+        For i = 1 To count
+            equipmentList = equipmentList & "Òðàêòîð" & vbCrLf
+        Next i
+    End If
+    
+    ' Ïîãðóç÷èêè (êîëîíêà I - êîëè÷åñòâî)
+    count = Val(foundRow.Offset(0, 8).Value)
+    If count > 0 Then
+        For i = 1 To count
+            equipmentList = equipmentList & "Ïîãðóç÷èê" & vbCrLf
+        Next i
+    End If
+    
+    ' Òåëåãè 20FT (êîëîíêà J - êîëè÷åñòâî)
+    count = Val(foundRow.Offset(0, 9).Value)
+    If count > 0 Then
+        For i = 1 To count
+            equipmentList = equipmentList & "Òåëåãà 20FT" & vbCrLf
+        Next i
+    End If
+    
+    ' Òåëåãè 10FT/ÒÏ/DAV (êîëîíêà K - êîëè÷åñòâî)
+    count = Val(foundRow.Offset(0, 10).Value)
+    If count > 0 Then
+        For i = 1 To count
+            equipmentList = equipmentList & "Òåëåãà ÒÏ/DAV" & vbCrLf
+        Next i
+    End If
+    
+    ' Óäàëÿåì ïîñëåäíèé ñèìâîë ïåðåâîäà ñòðîêè, åñëè îí åñòü
+    If Len(equipmentList) > 0 Then
+        equipmentList = Left(equipmentList, Len(equipmentList) - 1)
+    End If
+    
+    ÑôîðìèðîâàòüÑïèñîêÎáîðóäîâàíèÿ = equipmentList
+End Function
+
+Private Function Ðàññ÷èòàòüÂðåìÿÈñïîëüçîâàíèÿ(foundRow As Range) As String
+    Dim result As String
+    Dim startDate As Date, endDate As Date
+    Dim startTime As Date, endTime As Date
+    Dim totalMinutes As Long
+    Dim hours As Long, minutes As Long
+    
+    result = ""
+    
+    ' Ëåíòà òðàíñïîðòåðíàÿ (êîëîíêè L-O)
+    If Not IsEmpty(foundRow.Offset(0, 5).Value) And Not IsEmpty(foundRow.Offset(0, 11).Value) Then
+        startDate = CDate(foundRow.Offset(0, 11).Value)
+        startTime = CDate(foundRow.Offset(0, 12).Value)
+        endDate = CDate(foundRow.Offset(0, 13).Value)
+        endTime = CDate(foundRow.Offset(0, 14).Value)
+        
+        totalMinutes = DateDiff("n", startDate + startTime, endDate + endTime)
+        If totalMinutes < 0 Then totalMinutes = 0
+        
+        hours = totalMinutes \ 60
+        minutes = totalMinutes Mod 60
+        result = result & hours & " ÷. " & minutes & " ìèí." & vbCrLf
+    End If
+    
+    ' Ïàëëåòîïîãðóç÷èê (êîëîíêè P-S)
+    If Not IsEmpty(foundRow.Offset(0, 6).Value) And Not IsEmpty(foundRow.Offset(0, 15).Value) Then
+        startDate = CDate(foundRow.Offset(0, 15).Value)
+        startTime = CDate(foundRow.Offset(0, 16).Value)
+        endDate = CDate(foundRow.Offset(0, 17).Value)
+        endTime = CDate(foundRow.Offset(0, 18).Value)
+        
+        totalMinutes = DateDiff("n", startDate + startTime, endDate + endTime)
+        If totalMinutes < 0 Then totalMinutes = 0
+        
+        hours = totalMinutes \ 60
+        minutes = totalMinutes Mod 60
+        result = result & hours & " ÷. " & minutes & " ìèí." & vbCrLf
+    End If
+    
+    ' Òðàêòîð1 (êîëîíêè T-W)
+    If Not IsEmpty(foundRow.Offset(0, 19).Value) Then
+        startDate = CDate(foundRow.Offset(0, 19).Value)
+        startTime = CDate(foundRow.Offset(0, 20).Value)
+        endDate = CDate(foundRow.Offset(0, 21).Value)
+        endTime = CDate(foundRow.Offset(0, 22).Value)
+        
+        totalMinutes = DateDiff("n", startDate + startTime, endDate + endTime)
+        If totalMinutes < 0 Then totalMinutes = 0
+        
+        hours = totalMinutes \ 60
+        minutes = totalMinutes Mod 60
+        result = result & hours & " ÷. " & minutes & " ìèí." & vbCrLf
+    End If
+    
+    ' Òðàêòîð2 (êîëîíêè X-AA)
+    If Not IsEmpty(foundRow.Offset(0, 23).Value) Then
+        startDate = CDate(foundRow.Offset(0, 23).Value)
+        startTime = CDate(foundRow.Offset(0, 24).Value)
+        endDate = CDate(foundRow.Offset(0, 25).Value)
+        endTime = CDate(foundRow.Offset(0, 26).Value)
+        
+        totalMinutes = DateDiff("n", startDate + startTime, endDate + endTime)
+        If totalMinutes < 0 Then totalMinutes = 0
+        
+        hours = totalMinutes \ 60
+        minutes = totalMinutes Mod 60
+        result = result & hours & " ÷. " & minutes & " ìèí." & vbCrLf
+    End If
+    
+    ' Ïîãðóç÷èê1 (êîëîíêè AB-AE)
+    If Not IsEmpty(foundRow.Offset(0, 27).Value) Then
+        startDate = CDate(foundRow.Offset(0, 27).Value)
+        startTime = CDate(foundRow.Offset(0, 28).Value)
+        endDate = CDate(foundRow.Offset(0, 29).Value)
+        endTime = CDate(foundRow.Offset(0, 30).Value)
+        
+        totalMinutes = DateDiff("n", startDate + startTime, endDate + endTime)
+        If totalMinutes < 0 Then totalMinutes = 0
+        
+        hours = totalMinutes \ 60
+        minutes = totalMinutes Mod 60
+        result = result & hours & " ÷. " & minutes & " ìèí." & vbCrLf
+    End If
+    
+    ' Ïîãðóç÷èê2 (êîëîíêè AF-AI)
+    If Not IsEmpty(foundRow.Offset(0, 31).Value) Then
+        startDate = CDate(foundRow.Offset(0, 31).Value)
+        startTime = CDate(foundRow.Offset(0, 32).Value)
+        endDate = CDate(foundRow.Offset(0, 33).Value)
+        endTime = CDate(foundRow.Offset(0, 34).Value)
+        
+        totalMinutes = DateDiff("n", startDate + startTime, endDate + endTime)
+        If totalMinutes < 0 Then totalMinutes = 0
+        
+        hours = totalMinutes \ 60
+        minutes = totalMinutes Mod 60
+        result = result & hours & " ÷. " & minutes & " ìèí." & vbCrLf
+    End If
+    
+    ' Òåëåãè 20FT1 (êîëîíêè AJ-AM)
+    If Not IsEmpty(foundRow.Offset(0, 35).Value) Then
+        startDate = CDate(foundRow.Offset(0, 35).Value)
+        startTime = CDate(foundRow.Offset(0, 36).Value)
+        endDate = CDate(foundRow.Offset(0, 37).Value)
+        endTime = CDate(foundRow.Offset(0, 38).Value)
+        
+        totalMinutes = DateDiff("n", startDate + startTime, endDate + endTime)
+        If totalMinutes < 0 Then totalMinutes = 0
+        
+        hours = totalMinutes \ 60
+        minutes = totalMinutes Mod 60
+        result = result & hours & " ÷. " & minutes & " ìèí." & vbCrLf
+    End If
+    
+    ' Òåëåãè 20FT2 (êîëîíêè AN-AQ)
+    If Not IsEmpty(foundRow.Offset(0, 39).Value) Then
+        startDate = CDate(foundRow.Offset(0, 39).Value)
+        startTime = CDate(foundRow.Offset(0, 40).Value)
+        endDate = CDate(foundRow.Offset(0, 41).Value)
+        endTime = CDate(foundRow.Offset(0, 42).Value)
+        
+        totalMinutes = DateDiff("n", startDate + startTime, endDate + endTime)
+        If totalMinutes < 0 Then totalMinutes = 0
+        
+        hours = totalMinutes \ 60
+        minutes = totalMinutes Mod 60
+        result = result & hours & " ÷. " & minutes & " ìèí." & vbCrLf
+    End If
+    
+    ' Òåëåãè 10FT/ÒÏ/DAV (êîëîíêè AR-AU)
+    If Not IsEmpty(foundRow.Offset(0, 43).Value) Then
+        startDate = CDate(foundRow.Offset(0, 43).Value)
+        startTime = CDate(foundRow.Offset(0, 44).Value)
+        endDate = CDate(foundRow.Offset(0, 45).Value)
+        endTime = CDate(foundRow.Offset(0, 46).Value)
+        
+        totalMinutes = DateDiff("n", startDate + startTime, endDate + endTime)
+        If totalMinutes < 0 Then totalMinutes = 0
+        
+        hours = totalMinutes \ 60
+        minutes = totalMinutes Mod 60
+        result = result & hours & " ÷. " & minutes & " ìèí." & vbCrLf
+    End If
+    
+    ' Óäàëÿåì ïîñëåäíèé ñèìâîë ïåðåâîäà ñòðîêè, åñëè îí åñòü
+    If Len(result) > 0 Then
+        result = Left(result, Len(result) - 1)
+    End If
+    
+    Ðàññ÷èòàòüÂðåìÿÈñïîëüçîâàíèÿ = result
+End Function
+
+Private Sub ÇàïîëíèòüØàáëîí(foundRow As Range, wsReport As Worksheet, equipmentList As String, equipmentUsage As String)
+    ' Î÷èñòêà ïðåäûäóùèõ äàííûõ
+    wsReport.Range("B6,G6,G7").ClearContents
+    wsReport.Range("A18:A1000").ClearContents ' Î÷èùàåì îáëàñòü äëÿ ñïèñêà îáîðóäîâàíèÿ
+    wsReport.Range("B18:B1000").ClearContents ' Î÷èùàåì îáëàñòü äëÿ âðåìåíè èñïîëüçîâàíèÿ
+    
+    ' Çàïîëíåíèå îñíîâíûõ äàííûõ
+    With wsReport
+        .Range("H2").Value = foundRow.Value                   ' Íîìåð ÄÓ
+        .Range("N6").Value = foundRow.Offset(0, 3).Value      ' Çàêàç÷èê
+        .Range("N7").Value = foundRow.Offset(0, 4).Value      ' Óñëóãà
+        .Range("E9").Value = foundRow.Offset(0, 51).Value     ' Òåìà çàÿâêè
+        .Range("Q9").Value = foundRow.Offset(0, 1).Value      ' Îò Äàòû
+        .Range("W9").Value = foundRow.Offset(0, 2).Value      ' Îò Âðåìåíè
+        .Range("X29").Value = foundRow.Offset(0, 57).Value    ' Ñòàòóñ çàÿâêè
+        .Range("E6").Value = foundRow.Offset(0, 55).Value     ' ÍÑÓÏÄÑ
+        .Range("A14").Value = foundRow.Offset(0, 52).Value     ' Ïðîìåæóòî÷íûé ðåçóëüòàò
+        .Range("D28").Value = foundRow.Offset(0, 47).Value     ' Êîë-âî ìåñò àïòå÷êè
+        .Range("H28").Value = foundRow.Offset(0, 48).Value     ' Îáùèé âåñ àïòå÷êè
+        .Range("M28").Value = foundRow.Offset(0, 49).Value     ' Íîìåð ðåéñà
+        .Range("N28").Value = foundRow.Offset(0, 50).Value     ' Äàòà âûïîëíåíèÿ ðåéñà
+    End With
+    
+    ' Çàïîëíåíèå ñïèñêà îáîðóäîâàíèÿ è âðåìåíè èñïîëüçîâàíèÿ
+    If equipmentList <> "" Then
+        Dim eqpArray() As String
+        Dim usageArray() As String
+        Dim i As Integer
+        
+        ' Ðàçäåëÿåì ñòðîêè ñ îáîðóäîâàíèåì è âðåìåíåì èñïîëüçîâàíèÿ
+        eqpArray = Split(equipmentList, vbCrLf)
+        usageArray = Split(equipmentUsage, vbCrLf)
+        
+        ' Ïðîâåðÿåì, ÷òî êîëè÷åñòâî ñòðîê âðåìåíè èñïîëüçîâàíèÿ ñîîòâåòñòâóåò îáîðóäîâàíèþ
+        If UBound(eqpArray) = UBound(usageArray) Then
+            ' Çàïîëíÿåì îáîðóäîâàíèå è âðåìÿ èñïîëüçîâàíèÿ
+            For i = LBound(eqpArray) To UBound(eqpArray)
+                wsReport.Range("A" & (18 + i)).Value = eqpArray(i)
+                wsReport.Range("O" & (18 + i)).Value = usageArray(i)
+            Next i
+        Else
+            ' Åñëè êîëè÷åñòâî íå ñîâïàäàåò, çàïîëíÿåì òîëüêî îáîðóäîâàíèå
+            For i = LBound(eqpArray) To UBound(eqpArray)
+                wsReport.Range("A" & (18 + i)).Value = eqpArray(i)
+            Next i
+            
+            ' È âðåìÿ èñïîëüçîâàíèÿ, ñêîëüêî åñòü
+            For i = LBound(usageArray) To UBound(usageArray)
+                If 18 + i <= 1000 Then ' Ïðîâåðêà, ÷òîáû íå âûéòè çà ïðåäåëû ëèñòà
+                    wsReport.Range("O" & (18 + i)).Value = usageArray(i)
+                End If
+            Next i
+        End If
+    End If
+    
+    ' Ïðèíóäèòåëüíîå îáíîâëåíèå ýêðàíà
+    Application.ScreenUpdating = True
+    DoEvents
+    
+    Debug.Print "ØÀÁËÎÍ ÇÀÏÎËÍÅÍ"
+End Sub
+
+
+Private Sub Î÷èñòèòüØàáëîí(wsReport As Worksheet)
+    With wsReport
+        .Range("B6,G6,G7, E9, O19, O18, O20, O21, O22").ClearContents
+        .Range("H2,N6,N7,N9,Q9,W9,N12,E6,X28").ClearContents
+        .Range("A19, A18, A20, A21, A22, A14").ClearContents
+        .Range("D28, M28, N28, H28, X29").ClearContents
+        
+    End With
+    Application.ScreenUpdating = True
+End Sub
+
+
+
+
