@@ -1,0 +1,147 @@
+' =============================================
+' ÌÎÄÓËÜ ÄËß ÏÎÄÑÂÅÒÊÈ ÃÐÓÏÏ ÇÀÄÀ×
+' Àâòîìàòè÷åñêè íàõîäèò è ïîäñâå÷èâàåò çàäà÷è ñ ïîäçàäà÷àìè
+' =============================================
+Option Explicit
+
+' Êîíñòàíòà äëÿ èìåíè ëèñòà ïî óìîë÷àíèþ
+Private Const DEFAULT_SHEET As String = "Ëèñò1"
+
+' =============================================
+' ÌÀÊÐÎÑ ÄËß ÊÍÎÏÊÈ "ÃÐÓÏÏÈÐÎÂÀÒÜ"
+' Àâòîìàòè÷åñêè íàõîäèò è ïîäñâå÷èâàåò âñå ãðóïïû çàäà÷
+' =============================================
+Public Sub HighlightAllTaskGroups()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets(DEFAULT_SHEET)
+    On Error GoTo 0
+    
+    If ws Is Nothing Then
+        MsgBox "Ëèñò '" & DEFAULT_SHEET & "' íå íàéäåí!", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Ñáðàñûâàåì ñòàðóþ ïîäñâåòêó (ñîõðàíÿÿ øàïêó)
+    ResetHighlight
+    
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.count, "A").End(xlUp).Row
+    
+    ' Ñëîâàðü äëÿ õðàíåíèÿ öâåòîâ ãðóïï çàäà÷
+    Dim taskGroups As Object
+    Set taskGroups = CreateObject("Scripting.Dictionary")
+    
+    Dim i As Long, j As Long
+    Dim currentTask As String, parentTask As String
+    Dim hasSubtasks As Boolean
+    
+    ' Ïåðâûé ïðîõîä: íàõîäèì âñå çàäà÷è, èìåþùèå ïîäçàäà÷è
+    For i = 2 To lastRow ' Ïðîïóñêàåì øàïêó
+        currentTask = ws.Cells(i, 1).Value
+        If currentTask <> "" Then
+            ' Ïðîâåðÿåì, ÿâëÿåòñÿ ëè òåêóùàÿ çàäà÷à ïîäçàäà÷åé
+            For j = i + 1 To lastRow
+                If IsSubtask(ws.Cells(j, 1).Value, currentTask) Then
+                    ' Äîáàâëÿåì çàäà÷ó â ñëîâàðü, åñëè îíà èìååò ïîäçàäà÷è
+                    If Not taskGroups.Exists(currentTask) Then
+                        taskGroups.Add currentTask, GenerateLightColor()
+                    End If
+                    Exit For
+                End If
+            Next j
+        End If
+    Next i
+    
+    ' Âòîðîé ïðîõîä: ïîäñâå÷èâàåì çàäà÷è è èõ ïîäçàäà÷è
+    Dim taskKey As Variant
+    For Each taskKey In taskGroups.Keys
+        For i = 2 To lastRow
+            currentTask = ws.Cells(i, 1).Value
+            If currentTask <> "" Then
+                ' Ïîäñâå÷èâàåì îñíîâíóþ çàäà÷ó
+                If currentTask = taskKey Then
+                    ws.Cells(i, 1).EntireRow.Interior.color = taskGroups(taskKey)
+                    ws.Cells(i, 1).Font.Bold = True
+                ' Ïîäñâå÷èâàåì ïîäçàäà÷è
+                ElseIf IsSubtask(currentTask, taskKey) Then
+                    ws.Cells(i, 1).EntireRow.Interior.color = taskGroups(taskKey)
+                End If
+            End If
+        Next i
+    Next taskKey
+    
+    MsgBox "Íàéäåíî è ïîäñâå÷åíî " & taskGroups.count & " ãðóïï çàäà÷", vbInformation
+End Sub
+
+' =============================================
+' ÌÀÊÐÎÑ ÄËß ÊÍÎÏÊÈ "ÑÁÐÎÑÈÒÜ"
+' Óáèðàåò âñþ ïîäñâåòêó, ñîõðàíÿÿ øàïêó òàáëèöû
+' =============================================
+Public Sub ResetHighlight()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets(DEFAULT_SHEET)
+    On Error GoTo 0
+    
+    If ws Is Nothing Then Exit Sub
+    
+    ' Çàïîìèíàåì öâåò øàïêè
+    Dim headerColor As Long
+    headerColor = ws.Rows(1).Interior.color
+    
+    With ws
+        .Cells.Interior.ColorIndex = xlNone ' Ñáðàñûâàåì öâåò çàëèâêè
+        .Cells.Font.Bold = False ' Óáèðàåì æèðíûé øðèôò
+        
+        ' Âîññòàíàâëèâàåì öâåò øàïêè
+        .Rows(1).Interior.color = headerColor
+    End With
+End Sub
+
+' =============================================
+' ÏÐÎÂÅÐßÅÒ, ßÂËßÅÒÑß ËÈ ÇÀÄÀ×À ÏÎÄÇÀÄÀ×ÅÉ
+' =============================================
+Private Function IsSubtask(ByVal subtask As String, ByVal parentTask As String) As Boolean
+    If subtask = "" Or parentTask = "" Then
+        IsSubtask = False
+        Exit Function
+    End If
+    
+    ' Ïðîâåðÿåì ôîðìàòû ïîäçàäà÷:
+    ' - ðîäèòåëüñêàÿ çàäà÷à "ÄÓ-001", ïîäçàäà÷à "ÄÓ-001.1"
+    ' - ðîäèòåëüñêàÿ çàäà÷à "TASK-1", ïîäçàäà÷à "TASK-1A"
+    If subtask Like parentTask & "*" Then
+        ' Èñêëþ÷àåì ñëó÷àé, êîãäà çàäà÷è ïðîñòî íà÷èíàþòñÿ îäèíàêîâî
+        If Len(subtask) > Len(parentTask) Then
+            ' Ïðîâåðÿåì ñëåäóþùèé ñèìâîë ïîñëå ðîäèòåëüñêîé çàäà÷è
+            Dim nextChar As String
+            nextChar = Mid(subtask, Len(parentTask) + 1, 1)
+            IsSubtask = (nextChar = "." Or nextChar = "-" Or IsNumeric(nextChar) Or IsLetter(nextChar))
+        Else
+            IsSubtask = False
+        End If
+    Else
+        IsSubtask = False
+    End If
+End Function
+
+' =============================================
+' ÏÐÎÂÅÐßÅÒ, ßÂËßÅÒÑß ËÈ ÑÈÌÂÎË ÁÓÊÂÎÉ
+' =============================================
+Private Function IsLetter(ByVal character As String) As Boolean
+    If Len(character) <> 1 Then Exit Function
+    IsLetter = UCase(character) Like "[A-Z]"
+End Function
+
+' =============================================
+' ÃÅÍÅÐÀÒÎÐ ÑËÓ×ÀÉÍÎÃÎ ÑÂÅÒËÎÃÎ ÖÂÅÒÀ
+' =============================================
+Private Function GenerateLightColor() As Long
+    Dim r As Integer, g As Integer, b As Integer
+    Randomize ' Èíèöèàëèçèðóåì ãåíåðàòîð ñëó÷àéíûõ ÷èñåë
+    r = 200 + Rnd() * 55  ' Äèàïàçîí 200-255 (ñâåòëûå òîíà)
+    g = 200 + Rnd() * 55
+    b = 200 + Rnd() * 55
+    GenerateLightColor = RGB(r, g, b)
+End Function
